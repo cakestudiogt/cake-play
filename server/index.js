@@ -36,7 +36,7 @@ function softRateLimit(req, res, next) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, name: 'Pastel Run', version: '4.0.0', brand: 'Cake Studio Guatemala' });
+  res.json({ ok: true, name: 'Pastel Run', version: '4.1.0', brand: 'Cake Studio Guatemala' });
 });
 
 app.get('/api/leaderboard', (_req, res) => {

@@ -2,7 +2,7 @@
 
 Waiting-room endless runner for **Cake Studio Guatemala** — Subway Surfers–style 3-lane dash through the bakery. Spanish-first, mobile-first, forever global leaderboard.
 
-**Game:** Pastel Run (v4)  
+**Game:** Pastel Run (v4.1)  
 **Brand:** Cake Studio GT  
 **Target URL:** https://juego.cakestudiogt.com  
 **Repo:** https://github.com/cakestudiogt/cake-play

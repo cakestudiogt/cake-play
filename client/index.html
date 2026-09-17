@@ -38,7 +38,7 @@
           />
           <div>
             <h1>Pastel Run</h1>
-            <p class="tagline">Cake Studio Guatemala</p>
+            <p class="tagline">¡Corre, desliza y endúlzate!</p>
           </div>
         </div>
         <div class="top-actions">
@@ -50,23 +50,33 @@
 
       <main class="stage-wrap">
         <div class="hud">
-          <div class="hud-block">
-            <span class="hud-label">Puntos</span>
-            <span id="score" class="hud-value">0</span>
+          <div class="hud-pill score-pill">
+            <span class="hud-ico" aria-hidden="true">⭐</span>
+            <div>
+              <span class="hud-label">Puntos</span>
+              <span id="score" class="hud-value">0</span>
+            </div>
           </div>
-          <div class="hud-block">
-            <span class="hud-label">Distancia</span>
-            <span id="distance" class="hud-value">0 m</span>
+          <div class="hud-pill dist-pill">
+            <span class="hud-ico" aria-hidden="true">👟</span>
+            <div>
+              <span class="hud-label">Distancia</span>
+              <span id="distance" class="hud-value">0 m</span>
+            </div>
           </div>
-          <div class="hud-block">
+          <div class="hud-pill hearts-pill">
             <span class="hud-label">Vidas</span>
             <span id="hearts" class="hud-value hearts">❤❤❤</span>
           </div>
         </div>
 
         <div id="combo-meter" class="combo-meter" aria-live="polite">
-          <span class="combo-label">Combo</span>
+          <div class="combo-head">
+            <span class="combo-title">COMBO!</span>
+            <span class="combo-label">×0</span>
+          </div>
           <div class="combo-bar"><div class="combo-fill"></div></div>
+          <span class="combo-hint">¡Sigue así!</span>
         </div>
 
         <div id="game-shell" class="game-shell">
@@ -94,8 +104,7 @@
           />
           <h2>Pastel Run</h2>
           <p class="lead">
-            El endless runner de <strong>Cake Studio</strong>. Corre por el pasillo de la pastelería,
-            recoge tus favoritos y evita el desastre dulce.
+            ¡Corre, desliza y endúlzate! Endless runner de <strong>Cake Studio</strong> por la calle pastelera.
           </p>
           <label class="field">
             <span>Tu apodo</span>

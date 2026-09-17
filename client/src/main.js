@@ -25,9 +25,14 @@ function paintCombo(n) {
   if (!comboEl) return;
   const fill = comboEl.querySelector('.combo-fill');
   const label = comboEl.querySelector('.combo-label');
+  const hint = comboEl.querySelector('.combo-hint');
   const pct = Math.min(100, (n / 12) * 100);
   if (fill) fill.style.width = pct + '%';
-  if (label) label.textContent = n > 1 ? `Combo ×${n}` : 'Combo';
+  if (label) label.textContent = `×${n}`;
+  if (hint) {
+    hint.textContent =
+      n >= 9 ? '¡Imparable! 💕' : n >= 6 ? '¡Qué combo! 🧁' : n >= 3 ? '¡Sigue así! ❤️' : 'Recoge pasteles';
+  }
   comboEl.classList.toggle('hot', n >= 6);
 }
 

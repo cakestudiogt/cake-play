@@ -1,6 +1,6 @@
 {
   "name": "cake-play",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Pastel Run — endless runner for Cake Studio Guatemala",
   "private": true,
   "type": "module",
