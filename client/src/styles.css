@@ -82,7 +82,7 @@ body {
 
 .tagline {
   margin: 2px 0 0;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -125,7 +125,7 @@ body {
 
 .hud {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   align-items: stretch;
 }
@@ -156,21 +156,6 @@ body {
   line-height: 1.1;
 }
 
-.next-block {
-  min-width: 88px;
-}
-
-.next-preview {
-  width: 42px;
-  height: 42px;
-  margin: 4px auto 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 1.2rem;
-  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.08);
-}
-
 .game-shell {
   position: relative;
   border-radius: 24px;
@@ -180,29 +165,38 @@ body {
   box-shadow: var(--shadow);
   touch-action: none;
   user-select: none;
-  aspect-ratio: 9 / 14;
-  max-height: min(68dvh, 640px);
+  aspect-ratio: 1 / 1.22;
+  max-height: min(72dvh, 680px);
+  flex: 1;
+  min-height: 360px;
 }
 
 #game {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+#game:active {
+  cursor: grabbing;
 }
 
 .drop-hint {
   position: absolute;
   left: 50%;
-  bottom: 14px;
+  bottom: 26%;
   transform: translateX(-50%);
   font-size: 0.78rem;
   font-weight: 700;
   color: rgba(30, 79, 112, 0.55);
-  background: rgba(255, 253, 251, 0.75);
+  background: rgba(255, 253, 251, 0.85);
   padding: 6px 12px;
   border-radius: 999px;
   pointer-events: none;
   transition: opacity 0.4s ease;
+  white-space: nowrap;
 }
 
 .drop-hint.hide {
@@ -212,30 +206,36 @@ body {
 .combo-toast {
   position: absolute;
   left: 50%;
-  top: 18%;
+  top: 28%;
   transform: translateX(-50%);
   font-family: var(--display);
-  font-size: 1.6rem;
+  font-size: 1.85rem;
   font-weight: 700;
   color: var(--coral);
-  text-shadow: 0 2px 0 #fff;
+  text-shadow:
+    0 2px 0 #fff,
+    0 0 24px rgba(233, 122, 111, 0.55);
   pointer-events: none;
-  animation: pop 0.7s ease forwards;
+  animation: pop 0.85s ease forwards;
   z-index: 5;
 }
 
 @keyframes pop {
   0% {
     opacity: 0;
-    transform: translate(-50%, 10px) scale(0.8);
+    transform: translate(-50%, 14px) scale(0.7);
   }
-  30% {
+  25% {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1.08);
+    transform: translate(-50%, 0) scale(1.14);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -8px) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -20px) scale(1);
+    transform: translate(-50%, -28px) scale(0.96);
   }
 }
 
@@ -244,6 +244,54 @@ body {
   margin: 0;
   font-size: 0.85rem;
   color: rgba(30, 79, 112, 0.75);
+}
+
+.landing-board {
+  background: rgba(255, 253, 251, 0.65);
+  border: 1px solid rgba(234, 152, 175, 0.3);
+  border-radius: 16px;
+  padding: 10px 12px;
+}
+
+.landing-board:empty {
+  display: none;
+}
+
+.landing-title {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+  text-align: center;
+}
+
+.landing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.landing-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.landing-list strong {
+  color: var(--terracotta);
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: rgba(30, 79, 112, 0.6);
 }
 
 .overlay {
@@ -269,6 +317,8 @@ body {
   box-shadow: var(--shadow);
   border: 1px solid rgba(234, 152, 175, 0.4);
   animation: cardIn 0.35s ease;
+  max-height: min(92dvh, 720px);
+  overflow: auto;
 }
 
 .card.wide {
@@ -406,23 +456,14 @@ body {
   line-height: 1.55;
 }
 
-.tier-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-bottom: 14px;
+.how-list.bullets {
+  list-style: disc;
+  padding-left: 1.35rem;
+  text-align: left;
 }
 
-.tier-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--cream);
-  font-size: 0.78rem;
-  font-weight: 700;
+.how-list.bullets li {
+  margin-bottom: 8px;
 }
 
 .big-score {
@@ -439,7 +480,15 @@ body {
   text-align: center;
   min-height: 1.4em;
   color: var(--navy);
-  margin: 0 0 8px;
+  margin: 0 0 4px;
+}
+
+.over-meta {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(30, 79, 112, 0.65);
+  margin: 0 0 10px;
 }
 
 .board-list {
@@ -526,8 +575,13 @@ body {
   color: var(--coral);
 }
 
+/* Hide landing preview while playing */
+#app.playing .landing-board {
+  display: none;
+}
+
 @media (min-height: 800px) {
   .game-shell {
-    max-height: min(72dvh, 700px);
+    max-height: min(76dvh, 720px);
   }
 }

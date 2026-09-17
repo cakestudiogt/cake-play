@@ -1,6 +1,5 @@
 import './styles.css';
 import { CakeGame } from './game.js';
-import { CAKES } from './cakes.js';
 import { getState, updateState, generateReclaimCode } from './identity.js';
 import { setMuted, isMuted } from './audio.js';
 
@@ -11,53 +10,44 @@ setMuted(!!state.muted);
 const canvas = $('#game');
 const scoreEl = $('#score');
 const bestEl = $('#best');
-const nextPreview = $('#next-preview');
+const comboBestEl = $('#combo-best');
 const comboToast = $('#combo-toast');
 const dropHint = $('#drop-hint');
 
 bestEl.textContent = String(state.bestScore || 0);
 $('#nick-input').value = state.nickname || '';
 
-function paintNext(tier) {
-  const c = CAKES[tier];
-  nextPreview.style.background = `radial-gradient(circle at 35% 30%, #fff, ${c.color})`;
-  nextPreview.textContent = c.emoji;
-  nextPreview.title = c.name;
-}
-
 const game = new CakeGame(canvas, {
   onScore(n) {
     scoreEl.textContent = String(n);
   },
-  onNext(tier) {
-    paintNext(tier);
+  onBestCombo(n) {
+    comboBestEl.textContent = String(n);
   },
-  onCombo(n) {
+  onHand() {
+    /* tray is drawn on canvas */
+  },
+  onCombo(label) {
+    if (!label) return;
     comboToast.hidden = false;
-    comboToast.textContent = n >= 4 ? `¡COMBO x${n}! ✨` : `Combo x${n}!`;
-    comboToast.classList.remove('pop');
-    void comboToast.offsetWidth;
+    comboToast.textContent = label;
     comboToast.style.animation = 'none';
     void comboToast.offsetWidth;
     comboToast.style.animation = '';
-    setTimeout(() => {
+    clearTimeout(comboToast._t);
+    comboToast._t = setTimeout(() => {
       comboToast.hidden = true;
-    }, 700);
+    }, 900);
   },
   async onGameOver(score) {
     show('screen-over');
     $('#final-score').textContent = String(score);
+    const s = getState();
+    $('#over-best').textContent = `Tu récord: ${Math.max(score, s.bestScore || 0)} · Mejor combo: ${game.bestCombo}`;
     const msg = await submitScore(score);
     $('#score-msg').textContent = msg;
   },
 });
-
-paintNext(game.nextTier);
-
-// Tier legend
-$('#tier-legend').innerHTML = CAKES.map(
-  (c) => `<span class="tier-chip" style="background:${c.icing};border:1px solid ${c.color}55">${c.emoji} ${c.name}</span>`
-).join('');
 
 function show(id) {
   ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account'].forEach((s) => {
@@ -121,7 +111,8 @@ async function loadBoard() {
     const data = await api('/api/leaderboard');
     const rows = data.leaderboard || [];
     if (!rows.length) {
-      list.innerHTML = '<li style="grid-template-columns:1fr;text-align:center;color:#1e4f70aa">Aún no hay puntajes. ¡Sé el primero!</li>';
+      list.innerHTML =
+        '<li style="grid-template-columns:1fr;text-align:center;color:#1e4f70aa">Aún no hay puntajes. ¡Sé el primero!</li>';
       return;
     }
     list.innerHTML = rows
@@ -143,11 +134,36 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+async function paintLandingBoard() {
+  const el = $('#landing-board');
+  if (!el) return;
+  try {
+    const data = await api('/api/leaderboard');
+    const rows = (data.leaderboard || []).slice(0, 5);
+    if (!rows.length) {
+      el.innerHTML = '<p class="landing-empty">Sé el primero en el ranking 🏆</p>';
+      return;
+    }
+    el.innerHTML =
+      '<p class="landing-title">Top 5</p><ol class="landing-list">' +
+      rows
+        .map(
+          (r, i) =>
+            `<li><span>${i + 1}. ${escapeHtml(r.nickname)}</span><strong>${r.score}</strong></li>`
+        )
+        .join('') +
+      '</ol>';
+  } catch {
+    el.innerHTML = '';
+  }
+}
+
 function startGame() {
   const nick = ($('#nick-input').value || '').trim().slice(0, 24) || 'Jugador';
   updateState({ nickname: nick });
   ensurePlayer(nick);
   hideAllOverlays();
+  document.getElementById('app').classList.add('playing');
   dropHint.classList.remove('hide');
   setTimeout(() => dropHint.classList.add('hide'), 3500);
   game.start();
@@ -158,6 +174,7 @@ $('#btn-how').addEventListener('click', () => show('screen-how'));
 $('#btn-how-close').addEventListener('click', () => show('screen-start'));
 $('#btn-again').addEventListener('click', () => {
   hideAllOverlays();
+  document.getElementById('app').classList.add('playing');
   game.start();
 });
 $('#btn-board').addEventListener('click', async () => {
@@ -187,6 +204,11 @@ if (state.muted) {
 }
 
 $('#btn-account').addEventListener('click', () => {
+  $('#account-msg').textContent = '';
+  $('#account-msg').classList.remove('error');
+  show('screen-account');
+});
+$('#btn-save-cta')?.addEventListener('click', () => {
   $('#account-msg').textContent = '';
   $('#account-msg').classList.remove('error');
   show('screen-account');
@@ -266,15 +288,14 @@ $('#btn-reclaim').addEventListener('click', async () => {
 
 $('#btn-share').addEventListener('click', async () => {
   const score = $('#final-score').textContent;
-  const nick = getState().nickname || 'Jugador';
-  const text = `🎂 Saqué ${score} puntos en Cake Play de Cake Studio Guatemala. ¿Me superas?\nhttps://juego.cakestudiogt.com`;
+  const text = `🎂 Saqué ${score} puntos en Cake Blast (Cake Play) de Cake Studio Guatemala. ¿Me superas?\nhttps://juego.cakestudiogt.com`;
   try {
     if (navigator.share) {
-      await navigator.share({ title: 'Cake Play', text });
+      await navigator.share({ title: 'Cake Blast', text });
       return;
     }
   } catch {
-    /* user cancelled or failed — fall through */
+    /* cancelled */
   }
   try {
     await navigator.clipboard.writeText(text);
@@ -284,5 +305,5 @@ $('#btn-share').addEventListener('click', async () => {
   }
 });
 
-// Prefetch leaderboard quietly
+paintLandingBoard();
 api('/api/leaderboard').catch(() => {});

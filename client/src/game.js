@@ -1,53 +1,54 @@
-import Matter from 'matter-js';
-import { CAKES, randomDropTier, mergeScore } from './cakes.js';
-import { sfxDrop, sfxMerge, sfxCombo, sfxGameOver } from './audio.js';
+import {
+  BOARD_SIZE,
+  dealHand,
+  emptyBoard,
+  canPlace,
+  canFitAnywhere,
+  placePiece,
+  comboLabel,
+  scorePlacement,
+} from './pieces.js';
+import { sfxPlace, sfxClear, sfxCombo, sfxGameOver, sfxDeal } from './audio.js';
 
-const { Engine, World, Bodies, Body, Events, Composite } = Matter;
-
-const WALL = 18;
-const DANGER_Y_RATIO = 0.14;
-const SETTLE_MS = 750;
+const PAD = 10;
+const TRAY_GAP = 10;
+const TRAY_H_RATIO = 0.22;
 
 export class CakeGame {
   /**
    * @param {HTMLCanvasElement} canvas
-   * @param {{ onScore:(n:number)=>void, onNext:(tier:number)=>void, onGameOver:(score:number)=>void, onCombo:(n:number)=>void }} hooks
+   * @param {{
+   *   onScore:(n:number)=>void,
+   *   onBestCombo:(n:number)=>void,
+   *   onHand:(hand:any[])=>void,
+   *   onGameOver:(score:number)=>void,
+   *   onCombo:(label:string, lines:number)=>void,
+   * }} hooks
    */
   constructor(canvas, hooks) {
     this.canvas = canvas;
     this.hooks = hooks;
+    this.ctx = canvas.getContext('2d');
     this.score = 0;
+    this.bestCombo = 0;
+    this.clearStreak = 0;
     this.running = false;
     this.gameOver = false;
-    this.dropReady = true;
-    this.pendingTier = 0;
-    this.nextTier = randomDropTier(2);
-    this.aimX = 0.5;
-    this.pointerDown = false;
-    this.combo = 0;
-    this.comboTimer = 0;
+    this.board = emptyBoard();
+    this.hand = dealHand();
     this.particles = [];
-    this.mergeQueue = new Set();
-    this.maxUnlocked = 2;
+    this.flashes = []; // cleared cell flashes
+    this.shake = 0;
+    this.drag = null; // { index, offsetX, offsetY, ghostRow, ghostCol, valid }
     this._raf = 0;
-    this._dangerFrames = 0;
+    this._pointerId = null;
 
-    this.engine = Engine.create({
-      gravity: { x: 0, y: 1.05 },
-      enableSleeping: true,
-    });
-    this.engine.timing.timeScale = 1;
-
-    this.ctx = canvas.getContext('2d');
     this._resize();
-    this._buildWorld();
     this._bindInput();
-
-    this.pendingTier = randomDropTier(2);
-    this.nextTier = randomDropTier(2);
-    this.hooks.onNext?.(this.nextTier);
-
-    Events.on(this.engine, 'collisionStart', (e) => this._onCollisions(e));
+    window.addEventListener('resize', () => {
+      this._resize();
+      this._draw();
+    });
   }
 
   _resize() {
@@ -63,386 +64,449 @@ export class CakeGame {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.W = rect.width;
     this.H = rect.height;
-    this.dangerY = this.H * DANGER_Y_RATIO;
-  }
 
-  _buildWorld() {
-    World.clear(this.engine.world, false);
-    Engine.clear(this.engine);
-
-    const opts = { isStatic: true, friction: 0.35, restitution: 0.05, label: 'wall' };
-    const floor = Bodies.rectangle(this.W / 2, this.H + WALL / 2, this.W + 80, WALL, opts);
-    const left = Bodies.rectangle(-WALL / 2, this.H / 2, WALL, this.H * 2, opts);
-    const right = Bodies.rectangle(this.W + WALL / 2, this.H / 2, WALL, this.H * 2, opts);
-    World.add(this.engine.world, [floor, left, right]);
-  }
-
-  _bindInput() {
-    const toAim = (clientX) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const x = (clientX - rect.left) / rect.width;
-      this.aimX = Math.min(0.92, Math.max(0.08, x));
+    this.trayTop = this.H * (1 - TRAY_H_RATIO);
+    this.boardArea = {
+      x: PAD,
+      y: PAD,
+      w: this.W - PAD * 2,
+      h: this.trayTop - PAD - 8,
     };
+    const side = Math.min(this.boardArea.w, this.boardArea.h);
+    this.cell = side / BOARD_SIZE;
+    this.gridX = this.boardArea.x + (this.boardArea.w - side) / 2;
+    this.gridY = this.boardArea.y + (this.boardArea.h - side) / 2;
+    this.gridSize = side;
 
-    const onDown = (e) => {
-      if (!this.running || this.gameOver) return;
-      const t = e.touches ? e.touches[0] : e;
-      this.pointerDown = true;
-      toAim(t.clientX);
-      e.preventDefault?.();
-    };
-    const onMove = (e) => {
-      if (!this.pointerDown || !this.running || this.gameOver) return;
-      const t = e.touches ? e.touches[0] : e;
-      toAim(t.clientX);
-      e.preventDefault?.();
-    };
-    const onUp = (e) => {
-      if (!this.pointerDown) return;
-      this.pointerDown = false;
-      if (this.running && !this.gameOver) this.drop();
-      e.preventDefault?.();
-    };
-
-    this.canvas.addEventListener('pointerdown', onDown, { passive: false });
-    window.addEventListener('pointermove', onMove, { passive: false });
-    window.addEventListener('pointerup', onUp, { passive: false });
-    this.canvas.addEventListener('touchstart', onDown, { passive: false });
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp, { passive: false });
-
-    window.addEventListener('keydown', (e) => {
-      if (!this.running || this.gameOver) return;
-      if (e.key === 'ArrowLeft') this.aimX = Math.max(0.08, this.aimX - 0.04);
-      if (e.key === 'ArrowRight') this.aimX = Math.min(0.92, this.aimX + 0.04);
-      if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        this.drop();
-      }
-    });
-
-    this._onResize = () => {
-      // Keep physics coords stable — only redraw scale via CSS; skip hard rebuild mid-game
-    };
-    window.addEventListener('resize', this._onResize);
+    // tray slots
+    const slotW = (this.W - PAD * 2 - TRAY_GAP * 2) / 3;
+    const slotH = this.H - this.trayTop - PAD;
+    this.slots = [0, 1, 2].map((i) => ({
+      x: PAD + i * (slotW + TRAY_GAP),
+      y: this.trayTop,
+      w: slotW,
+      h: slotH,
+    }));
   }
 
   start() {
-    this._resize();
-    this.reset();
+    this.score = 0;
+    this.bestCombo = 0;
+    this.clearStreak = 0;
     this.running = true;
     this.gameOver = false;
-    this._loop(performance.now());
-  }
-
-  reset() {
-    this.score = 0;
-    this.combo = 0;
-    this.comboTimer = 0;
+    this.board = emptyBoard();
+    this.hand = dealHand();
     this.particles = [];
-    this.mergeQueue.clear();
-    this.dropReady = true;
-    this.gameOver = false;
-    this._dangerFrames = 0;
-    this.maxUnlocked = 2;
-    this.pendingTier = randomDropTier(2);
-    this.nextTier = randomDropTier(2);
+    this.flashes = [];
+    this.shake = 0;
+    this.drag = null;
     this.hooks.onScore?.(0);
-    this.hooks.onNext?.(this.nextTier);
-    Composite.clear(this.engine.world, false);
-    this._buildWorld();
+    this.hooks.onBestCombo?.(0);
+    this.hooks.onHand?.(this.hand);
+    sfxDeal();
+    this._ensureLoop();
+    this._checkGameOver();
   }
 
-  stop() {
-    this.running = false;
-    if (this._raf) cancelAnimationFrame(this._raf);
+  _ensureLoop() {
+    if (this._raf) return;
+    const tick = () => {
+      this._raf = requestAnimationFrame(tick);
+      this._update();
+      this._draw();
+    };
+    this._raf = requestAnimationFrame(tick);
   }
 
-  drop() {
-    if (!this.dropReady || this.gameOver || !this.running) return;
-    const tier = this.pendingTier;
-    const cake = CAKES[tier];
-    const x = this.aimX * this.W;
-    const y = this.dangerY + cake.radius + 4;
-    // Keep inside walls
-    const clampedX = Math.min(this.W - cake.radius - 4, Math.max(cake.radius + 4, x));
+  _update() {
+    if (this.shake > 0) this.shake *= 0.85;
+    if (this.shake < 0.15) this.shake = 0;
 
-    const body = Bodies.circle(clampedX, y, cake.radius, {
-      restitution: 0.12,
-      friction: 0.45,
-      frictionAir: 0.012,
-      density: 0.0018 + tier * 0.00015,
-      label: 'cake',
-      slop: 0.05,
-    });
-    body.plugin = { tier, born: performance.now(), merging: false };
-    World.add(this.engine.world, body);
-
-    sfxDrop();
-    this.dropReady = false;
-    this.pendingTier = this.nextTier;
-    this.nextTier = randomDropTier(this.maxUnlocked);
-    this.hooks.onNext?.(this.nextTier);
-
-    setTimeout(() => {
-      if (!this.gameOver) this.dropReady = true;
-    }, SETTLE_MS);
-  }
-
-  _onCollisions(event) {
-    for (const pair of event.pairs) {
-      const a = pair.bodyA;
-      const b = pair.bodyB;
-      if (a.label !== 'cake' || b.label !== 'cake') continue;
-      if (a.plugin?.merging || b.plugin?.merging) continue;
-      if (a.plugin?.tier !== b.plugin?.tier) continue;
-      const tier = a.plugin.tier;
-      if (tier >= CAKES.length - 1) continue;
-      // Debounce same pair
-      const key = [a.id, b.id].sort().join('-');
-      if (this.mergeQueue.has(key)) continue;
-      this.mergeQueue.add(key);
-      this._merge(a, b, tier);
-      setTimeout(() => this.mergeQueue.delete(key), 200);
-    }
-  }
-
-  _merge(a, b, tier) {
-    a.plugin.merging = true;
-    b.plugin.merging = true;
-    const nx = (a.position.x + b.position.x) / 2;
-    const ny = (a.position.y + b.position.y) / 2;
-    World.remove(this.engine.world, a);
-    World.remove(this.engine.world, b);
-
-    const next = tier + 1;
-    this.maxUnlocked = Math.max(this.maxUnlocked, next);
-    const cake = CAKES[next];
-    const body = Bodies.circle(nx, ny, cake.radius, {
-      restitution: 0.14,
-      friction: 0.4,
-      frictionAir: 0.01,
-      density: 0.0018 + next * 0.00015,
-      label: 'cake',
-    });
-    body.plugin = { tier: next, born: performance.now(), merging: false };
-    Body.setVelocity(body, { x: 0, y: -1.2 });
-    World.add(this.engine.world, body);
-
-    this.combo += 1;
-    this.comboTimer = performance.now();
-    const pts = mergeScore(next) * (1 + Math.min(this.combo - 1, 5) * 0.25);
-    this.score += Math.round(pts);
-    this.hooks.onScore?.(this.score);
-    sfxMerge(next);
-    if (this.combo >= 2) {
-      sfxCombo(this.combo);
-      this.hooks.onCombo?.(this.combo);
-    }
-    this._burst(nx, ny, cake.color, 12 + next * 2);
-  }
-
-  _burst(x, y, color, n) {
-    for (let i = 0; i < n; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const sp = 1.5 + Math.random() * 3.5;
-      this.particles.push({
-        x,
-        y,
-        vx: Math.cos(ang) * sp,
-        vy: Math.sin(ang) * sp - 1,
-        life: 1,
-        color,
-        r: 2 + Math.random() * 4,
-      });
-    }
-  }
-
-  _checkDanger(now) {
-    const cakes = Composite.allBodies(this.engine.world).filter((b) => b.label === 'cake');
-    let over = false;
-    for (const b of cakes) {
-      // Only count settled cakes that stay above the line
-      if (now - (b.plugin?.born || 0) < SETTLE_MS + 200) continue;
-      if (b.speed > 1.8) continue;
-      const top = b.position.y - (b.circleRadius || 0);
-      if (top < this.dangerY) {
-        over = true;
-        break;
-      }
-    }
-    if (over) {
-      this._dangerFrames += 1;
-      if (this._dangerFrames > 55) this._endGame();
-    } else {
-      this._dangerFrames = Math.max(0, this._dangerFrames - 2);
-    }
-  }
-
-  _endGame() {
-    if (this.gameOver) return;
-    this.gameOver = true;
-    this.dropReady = false;
-    sfxGameOver();
-    this.hooks.onGameOver?.(this.score);
-  }
-
-  _loop(now) {
-    if (!this.running) return;
-    Engine.update(this.engine, 1000 / 60);
-    if (now - this.comboTimer > 1400) this.combo = 0;
-    if (!this.gameOver) this._checkDanger(now);
-    this._draw(now);
-    this._raf = requestAnimationFrame((t) => this._loop(t));
-  }
-
-  _draw(now) {
-    const ctx = this.ctx;
-    const W = this.W;
-    const H = this.H;
-    ctx.clearRect(0, 0, W, H);
-
-    // Soft inner gradient
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#fff9f7');
-    g.addColorStop(1, '#f3e3df');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-
-    // Danger line
-    const pulse = 0.45 + Math.sin(now / 220) * 0.2;
-    ctx.strokeStyle = `rgba(233, 122, 111, ${0.55 + this._dangerFrames / 120})`;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    ctx.moveTo(10, this.dangerY);
-    ctx.lineTo(W - 10, this.dangerY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = `rgba(233, 122, 111, ${pulse * 0.12 + this._dangerFrames / 200})`;
-    ctx.fillRect(0, 0, W, this.dangerY);
-
-    ctx.fillStyle = 'rgba(233, 122, 111, 0.85)';
-    ctx.font = '700 11px Nunito, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('PELIGRO', 14, this.dangerY - 6);
-
-    // Ghost preview
-    if (this.running && !this.gameOver && this.dropReady) {
-      const cake = CAKES[this.pendingTier];
-      const x = Math.min(W - cake.radius - 4, Math.max(cake.radius + 4, this.aimX * W));
-      const y = this.dangerY + cake.radius + 4;
-      ctx.globalAlpha = 0.55;
-      this._drawCake(ctx, x, y, this.pendingTier, 1);
-      ctx.globalAlpha = 1;
-      // Guide line
-      ctx.strokeStyle = 'rgba(30, 79, 112, 0.15)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 6]);
-      ctx.beginPath();
-      ctx.moveTo(x, y + cake.radius);
-      ctx.lineTo(x, H - 8);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    const bodies = Composite.allBodies(this.engine.world);
-    for (const b of bodies) {
-      if (b.label !== 'cake') continue;
-      this._drawCake(ctx, b.position.x, b.position.y, b.plugin.tier, b.angle);
-    }
-
-    // Particles
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
+    for (const p of this.particles) {
       p.x += p.vx;
       p.y += p.vy;
       p.vy += 0.12;
-      p.life -= 0.03;
-      if (p.life <= 0) {
-        this.particles.splice(i, 1);
-        continue;
+      p.life -= 1;
+      p.r *= 0.985;
+    }
+    this.particles = this.particles.filter((p) => p.life > 0);
+
+    for (const f of this.flashes) f.t -= 1;
+    this.flashes = this.flashes.filter((f) => f.t > 0);
+  }
+
+  _bindInput() {
+    const canvas = this.canvas;
+
+    const pos = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : e.changedTouches ? e.changedTouches[0] : e;
+      return {
+        x: t.clientX - rect.left,
+        y: t.clientY - rect.top,
+      };
+    };
+
+    const onDown = (e) => {
+      if (!this.running || this.gameOver || this.drag) return;
+      const { x, y } = pos(e);
+      const idx = this._hitSlot(x, y);
+      if (idx < 0) return;
+      const piece = this.hand[idx];
+      if (!piece || piece.used) return;
+
+      const slot = this.slots[idx];
+      this.drag = {
+        index: idx,
+        grabX: x,
+        grabY: y,
+        // offset so piece centers under finger a bit above
+        offsetX: 0,
+        offsetY: -this.cell * 1.2,
+        x,
+        y,
+        ghostRow: -1,
+        ghostCol: -1,
+        valid: false,
+      };
+      this._pointerId = e.pointerId ?? null;
+      try {
+        canvas.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore */
       }
-      ctx.globalAlpha = Math.max(0, p.life);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      e.preventDefault?.();
+    };
+
+    const onMove = (e) => {
+      if (!this.drag) return;
+      const { x, y } = pos(e);
+      this.drag.x = x;
+      this.drag.y = y;
+      this._updateGhost();
+      e.preventDefault?.();
+    };
+
+    const onUp = (e) => {
+      if (!this.drag) return;
+      this._updateGhost();
+      const { ghostRow, ghostCol, valid, index } = this.drag;
+      this.drag = null;
+      this._pointerId = null;
+      if (valid) {
+        this._commitPlace(index, ghostRow, ghostCol);
+      }
+      e.preventDefault?.();
+    };
+
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup', onUp, { passive: false });
+    canvas.addEventListener('pointercancel', onUp, { passive: false });
+    // touch fallback
+    canvas.addEventListener('touchstart', onDown, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onUp, { passive: false });
+  }
+
+  _hitSlot(x, y) {
+    for (let i = 0; i < this.slots.length; i++) {
+      const s = this.slots[i];
+      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return i;
+    }
+    return -1;
+  }
+
+  _updateGhost() {
+    if (!this.drag) return;
+    const piece = this.hand[this.drag.index];
+    if (!piece) return;
+    const gx = this.drag.x + this.drag.offsetX;
+    const gy = this.drag.y + this.drag.offsetY;
+    // map to top-left cell of piece bounding box
+    const col = Math.round((gx - this.gridX) / this.cell - piece.cols / 2 + 0.5) - 0;
+    // better: center the piece under pointer
+    const originCol = Math.floor((gx - this.gridX) / this.cell - (piece.cols - 1) / 2);
+    const originRow = Math.floor((gy - this.gridY) / this.cell - (piece.rows - 1) / 2);
+    this.drag.ghostCol = originCol;
+    this.drag.ghostRow = originRow;
+    this.drag.valid = canPlace(this.board, piece, originRow, originCol);
+  }
+
+  _commitPlace(index, row, col) {
+    const piece = this.hand[index];
+    if (!piece || !canPlace(this.board, piece, row, col)) return;
+
+    const result = placePiece(this.board, piece, row, col);
+    piece.used = true;
+    sfxPlace();
+
+    if (result.linesCleared > 0) {
+      this.clearStreak += 1;
+      this.bestCombo = Math.max(this.bestCombo, this.clearStreak);
+      this.hooks.onBestCombo?.(this.bestCombo);
+      this._burstClear(result);
+      const label = comboLabel(result.linesCleared);
+      if (result.linesCleared >= 2) {
+        sfxCombo(result.linesCleared);
+        this.hooks.onCombo?.(label, result.linesCleared);
+      } else {
+        sfxClear();
+        this.hooks.onCombo?.(label, result.linesCleared);
+      }
+      this.shake = Math.min(10, 3 + result.linesCleared * 1.5);
+    } else {
+      this.clearStreak = 0;
     }
 
-    if (this.gameOver) {
-      ctx.fillStyle = 'rgba(30, 79, 112, 0.18)';
-      ctx.fillRect(0, 0, W, H);
+    const { score: add } = scorePlacement({
+      cellsPlaced: result.cellsPlaced,
+      linesCleared: result.linesCleared,
+      streak: this.clearStreak,
+    });
+    this.score += add;
+    this.hooks.onScore?.(this.score);
+    this.hooks.onHand?.(this.hand);
+
+    // refill hand when all used
+    if (this.hand.every((p) => !p || p.used)) {
+      this.hand = dealHand();
+      sfxDeal();
+      this.hooks.onHand?.(this.hand);
+    }
+
+    this._checkGameOver();
+  }
+
+  _burstClear(result) {
+    for (const [r, c, cell] of result.clearedCells) {
+      const cx = this.gridX + c * this.cell + this.cell / 2;
+      const cy = this.gridY + r * this.cell + this.cell / 2;
+      this.flashes.push({ r, c, color: cell?.color || '#ea98af', t: 14, max: 14 });
+      const n = 8 + Math.floor(Math.random() * 6);
+      for (let i = 0; i < n; i++) {
+        const ang = (Math.PI * 2 * i) / n + Math.random() * 0.4;
+        const spd = 1.5 + Math.random() * 3.5;
+        this.particles.push({
+          x: cx,
+          y: cy,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 1.5,
+          r: 2 + Math.random() * 3.5,
+          color: cell?.icing || cell?.color || '#fff',
+          life: 28 + Math.random() * 18,
+        });
+      }
     }
   }
 
-  _drawCake(ctx, x, y, tier, angle) {
-    const cake = CAKES[tier];
-    if (!cake) return;
-    const r = cake.radius;
+  _checkGameOver() {
+    const remaining = this.hand.filter((p) => p && !p.used);
+    if (remaining.length === 0) return;
+    const anyFit = remaining.some((p) => canFitAnywhere(this.board, p));
+    if (!anyFit) {
+      this.gameOver = true;
+      this.running = false;
+      sfxGameOver();
+      setTimeout(() => this.hooks.onGameOver?.(this.score), 350);
+    }
+  }
+
+  _draw() {
+    const ctx = this.ctx;
+    const sx = this.shake ? (Math.random() - 0.5) * this.shake : 0;
+    const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0;
+
+    ctx.clearRect(0, 0, this.W, this.H);
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle || 0);
+    ctx.translate(sx, sy);
 
-    // Shadow
-    ctx.beginPath();
-    ctx.ellipse(2, r * 0.55, r * 0.85, r * 0.28, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(30, 79, 112, 0.12)';
+    // board plate
+    this._roundRect(
+      this.gridX - 6,
+      this.gridY - 6,
+      this.gridSize + 12,
+      this.gridSize + 12,
+      16
+    );
+    ctx.fillStyle = 'rgba(255,253,251,0.95)';
     ctx.fill();
-
-    // Body
-    const bodyGrad = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.2, 0, 0, r);
-    bodyGrad.addColorStop(0, shade(cake.color, 28));
-    bodyGrad.addColorStop(0.55, cake.color);
-    bodyGrad.addColorStop(1, shade(cake.color, -22));
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = bodyGrad;
-    ctx.fill();
-
-    // Icing cap
-    ctx.beginPath();
-    ctx.ellipse(0, -r * 0.28, r * 0.78, r * 0.42, 0, 0, Math.PI * 2);
-    ctx.fillStyle = cake.icing;
-    ctx.fill();
-
-    // Cherry / topper
-    ctx.beginPath();
-    ctx.arc(0, -r * 0.55, Math.max(3, r * 0.14), 0, Math.PI * 2);
-    ctx.fillStyle = tier >= 5 ? '#5ca370' : '#e97a6f';
-    ctx.fill();
-
-    // Ring
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = 'rgba(234,152,175,0.55)';
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, r - 1.5, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Emoji hint for larger
-    if (r >= 28) {
-      ctx.rotate(-(angle || 0));
-      ctx.font = `${Math.floor(r * 0.7)}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.globalAlpha = 0.92;
-      ctx.fillText(cake.emoji, 0, 2);
+    // grid cells
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const x = this.gridX + c * this.cell;
+        const y = this.gridY + r * this.cell;
+        const pad = 2;
+        this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
+        const cell = this.board[r][c];
+        if (cell) {
+          this._drawCakeCell(x + pad, y + pad, this.cell - pad * 2, cell.color, cell.icing);
+        } else {
+          ctx.fillStyle = 'rgba(234,152,175,0.12)';
+          ctx.fill();
+        }
+      }
+    }
+
+    // flashes
+    for (const f of this.flashes) {
+      const a = f.t / f.max;
+      const x = this.gridX + f.c * this.cell;
+      const y = this.gridY + f.r * this.cell;
+      const pad = 2;
+      this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
+      ctx.fillStyle = `rgba(255,255,255,${0.85 * a})`;
+      ctx.fill();
+      ctx.strokeStyle = f.color;
+      ctx.globalAlpha = a;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // ghost
+    if (this.drag) {
+      const piece = this.hand[this.drag.index];
+      if (piece) {
+        const { ghostRow, ghostCol, valid } = this.drag;
+        if (ghostRow >= -2 && ghostCol >= -2) {
+          for (const [dr, dc] of piece.cells) {
+            const r = ghostRow + dr;
+            const c = ghostCol + dc;
+            if (r < 0 || c < 0 || r >= BOARD_SIZE || c >= BOARD_SIZE) continue;
+            const x = this.gridX + c * this.cell;
+            const y = this.gridY + r * this.cell;
+            const pad = 2;
+            this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
+            ctx.fillStyle = valid ? `${piece.color}99` : 'rgba(233,122,111,0.45)';
+            ctx.fill();
+            if (valid) {
+              ctx.strokeStyle = '#fff';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            }
+          }
+        }
+      }
+    }
+
+    // tray background
+    this._roundRect(PAD / 2, this.trayTop - 4, this.W - PAD, this.H - this.trayTop + 2, 18);
+    ctx.fillStyle = 'rgba(255,253,251,0.72)';
+    ctx.fill();
+
+    // tray pieces
+    for (let i = 0; i < 3; i++) {
+      const slot = this.slots[i];
+      this._roundRect(slot.x, slot.y, slot.w, slot.h, 14);
+      ctx.fillStyle = 'rgba(244,234,233,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(234,152,175,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const piece = this.hand[i];
+      if (!piece || piece.used) continue;
+      if (this.drag && this.drag.index === i) continue;
+
+      const fits = canFitAnywhere(this.board, piece);
+      ctx.globalAlpha = fits ? 1 : 0.38;
+      this._drawPieceInSlot(piece, slot);
+      ctx.globalAlpha = 1;
+    }
+
+    // dragging piece under finger
+    if (this.drag) {
+      const piece = this.hand[this.drag.index];
+      if (piece) {
+        const cell = this.cell * 0.92;
+        const w = piece.cols * cell;
+        const h = piece.rows * cell;
+        const ox = this.drag.x + this.drag.offsetX - w / 2;
+        const oy = this.drag.y + this.drag.offsetY - h / 2;
+        ctx.save();
+        ctx.shadowColor = 'rgba(30,79,112,0.35)';
+        ctx.shadowBlur = 16;
+        ctx.shadowOffsetY = 8;
+        for (const [dr, dc] of piece.cells) {
+          const x = ox + dc * cell;
+          const y = oy + dr * cell;
+          this._drawCakeCell(x + 1, y + 1, cell - 2, piece.color, piece.icing);
+        }
+        ctx.restore();
+      }
+    }
+
+    // particles
+    for (const p of this.particles) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.min(1, p.life / 20);
+      ctx.fill();
       ctx.globalAlpha = 1;
     }
 
     ctx.restore();
   }
-}
 
-function shade(hex, amt) {
-  const n = hex.replace('#', '');
-  const num = parseInt(n.length === 3 ? n.split('').map((c) => c + c).join('') : n, 16);
-  let r = (num >> 16) + amt;
-  let g = ((num >> 8) & 0xff) + amt;
-  let b = (num & 0xff) + amt;
-  r = Math.max(0, Math.min(255, r));
-  g = Math.max(0, Math.min(255, g));
-  b = Math.max(0, Math.min(255, b));
-  return `rgb(${r},${g},${b})`;
+  _drawPieceInSlot(piece, slot) {
+    const maxDim = Math.max(piece.rows, piece.cols);
+    const cell = Math.min(slot.w, slot.h) / (maxDim + 1.1);
+    const w = piece.cols * cell;
+    const h = piece.rows * cell;
+    const ox = slot.x + (slot.w - w) / 2;
+    const oy = slot.y + (slot.h - h) / 2;
+    for (const [dr, dc] of piece.cells) {
+      this._drawCakeCell(ox + dc * cell + 1, oy + dr * cell + 1, cell - 2, piece.color, piece.icing);
+    }
+  }
+
+  _drawCakeCell(x, y, s, color, icing) {
+    const ctx = this.ctx;
+    this._roundRect(x, y, s, s, Math.max(4, s * 0.22));
+    const g = ctx.createLinearGradient(x, y, x, y + s);
+    g.addColorStop(0, icing || '#fff');
+    g.addColorStop(0.35, color);
+    g.addColorStop(1, this._shade(color, -22));
+    ctx.fillStyle = g;
+    ctx.fill();
+    // frosting shine
+    ctx.beginPath();
+    ctx.ellipse(x + s * 0.35, y + s * 0.3, s * 0.22, s * 0.12, -0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fill();
+    // sprinkle
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(x + s * 0.55, y + s * 0.48, s * 0.12, s * 0.06);
+  }
+
+  _shade(hex, amt) {
+    const n = hex.replace('#', '');
+    const num = parseInt(n.length === 3 ? n.split('').map((c) => c + c).join('') : n, 16);
+    let r = (num >> 16) + amt;
+    let g = ((num >> 8) & 0xff) + amt;
+    let b = (num & 0xff) + amt;
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  _roundRect(x, y, w, h, r) {
+    const ctx = this.ctx;
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
 }

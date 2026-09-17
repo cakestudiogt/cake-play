@@ -36,7 +36,7 @@ function softRateLimit(req, res, next) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, name: 'Cake Play', version: '1.0.0' });
+  res.json({ ok: true, name: 'Cake Blast', version: '2.0.0' });
 });
 
 app.get('/api/leaderboard', (_req, res) => {
