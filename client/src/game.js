@@ -387,8 +387,8 @@ export class CakeGame {
       }
     }
 
-    // hint glow on movable (subtle)
-    if (!this.anim && this.running && !this.gameOver) {
+    // Tutorial only (L1–3): subtle glow on legal moves. Later levels: no hints — find them.
+    if (!this.anim && this.running && !this.gameOver && this.levelIndex < 3) {
       const moves = listMovable(this.grid);
       for (const [r, c] of moves) {
         const cx = x + c * cell + cell / 2;

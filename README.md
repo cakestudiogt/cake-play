@@ -12,7 +12,7 @@ Waiting-room puzzle for **Cake Studio Guatemala** — Arrows / Puzzle Escape–s
 - Grid of frosting arrows (↑↓←→); tap only when the path to the edge is clear
 - Arrow slides into a **frosting portal** and clears — clear the whole board
 - Blocked tap costs a life (3 per run); 0 lives → game over
-- 60 generated + hand-tuned solvable levels with a hard rising curve (order matters)
+- 80 generated + hand-tuned solvable levels with a brutal forced-order curve (order matters; hints only on L1–3)
 - Undo last clear + restart current level
 - **Run score** climbs with levels cleared (see Scoring)
 - Forever leaderboard (nickname + score only — WhatsApp never public)
@@ -27,7 +27,7 @@ Session / run score (what goes on the leaderboard):
 
 - Clear level **N**: `100×N + 15×arrows + 40×heartsLeft + timeBonus(0–80) + comboBonus`
 - Quick successive clears build combo (`+25` per streak step after the first)
-- Finish all 60 levels: `+500` bonus, then run ends as a win
+- Finish all 80 levels: `+500` bonus, then run ends as a win
 - Mistaps do not add points; they only cost hearts
 
 ## Brand
