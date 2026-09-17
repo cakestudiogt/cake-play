@@ -1,23 +1,34 @@
-# Cake Play · Cake Blast
+# Cake Play · Flechas de Azúcar
 
-Waiting-room puzzle for **Cake Studio Guatemala** — Block Blast–style place-and-clear with cake blocks. Spanish-first, mobile-first, forever global leaderboard.
+Waiting-room puzzle for **Cake Studio Guatemala** — Arrows / Puzzle Escape–style clear-the-board with frosting arrows. Spanish-first, mobile-first, forever global leaderboard.
 
-**Game mode:** Cake Blast  
+**Game mode:** Flechas de Azúcar (v3)  
 **Shell brand:** Cake Play · Cake Studio GT  
 **Target URL:** https://juego.cakestudiogt.com  
 **Repo:** https://github.com/cakestudiogt/cake-play
 
-## Features (v2 — Cake Blast)
+## Features (v3)
 
-- 8×8 board · 3 cake-block polyominoes at a time · drag / tap-place
-- Clear full **rows and columns** with frosting burst particles + combo juice
-- Multi-line clears: ¡Doble! ¡Triple! ¡Mega clear! · streak combo bonus
-- No Tetris gravity — pure Block Blast place-and-clear
-- One forever leaderboard (nickname + score only — WhatsApp never public)
+- Grid of frosting arrows (↑↓←→); tap only when the path to the edge is clear
+- Arrow slides into a **frosting portal** and clears — clear the whole board
+- Blocked tap costs a life (3 per run); 0 lives → game over
+- 45 handcrafted/generated solvable levels with rising difficulty
+- Undo last clear + restart current level
+- **Run score** climbs with levels cleared (see Scoring)
+- Forever leaderboard (nickname + score only — WhatsApp never public)
 - Higher score updates; lower score shows “ya tienes mejor puntaje…”
 - localStorage player id + optional WhatsApp (+502) save / reclaim code
-- Game-over share + WhatsApp save CTA
+- Share on game over and big-win milestones
 - Express + better-sqlite3 + Vite static build · PORT 3847
+
+## Scoring
+
+Session / run score (what goes on the leaderboard):
+
+- Clear level **N**: `100×N + 15×arrows + 40×heartsLeft + timeBonus(0–80) + comboBonus`
+- Quick successive clears build combo (`+25` per streak step after the first)
+- Finish all 45 levels: `+500` bonus, then run ends as a win
+- Mistaps do not add points; they only cost hearts
 
 ## Brand
 

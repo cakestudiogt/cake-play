@@ -9,56 +9,80 @@ setMuted(!!state.muted);
 
 const canvas = $('#game');
 const scoreEl = $('#score');
-const bestEl = $('#best');
-const comboBestEl = $('#combo-best');
+const levelEl = $('#level');
+const heartsEl = $('#hearts');
 const comboToast = $('#combo-toast');
 const dropHint = $('#drop-hint');
 
-bestEl.textContent = String(state.bestScore || 0);
 $('#nick-input').value = state.nickname || '';
+
+function paintHearts(n, max) {
+  heartsEl.textContent = '❤'.repeat(Math.max(0, n)) + '♡'.repeat(Math.max(0, max - n));
+}
 
 const game = new CakeGame(canvas, {
   onScore(n) {
     scoreEl.textContent = String(n);
   },
-  onBestCombo(n) {
-    comboBestEl.textContent = String(n);
+  onLevel(n, total) {
+    levelEl.textContent = String(n);
+    levelEl.title = `${n} / ${total}`;
   },
-  onHand() {
-    /* tray is drawn on canvas */
+  onHearts(n, max) {
+    paintHearts(n, max);
   },
   onCombo(label) {
-    if (!label) return;
-    comboToast.hidden = false;
-    comboToast.textContent = label;
-    comboToast.style.animation = 'none';
-    void comboToast.offsetWidth;
-    comboToast.style.animation = '';
-    clearTimeout(comboToast._t);
-    comboToast._t = setTimeout(() => {
-      comboToast.hidden = true;
-    }, 900);
+    showToast(label);
   },
-  async onGameOver(score) {
+  onToast(label) {
+    showToast(label);
+  },
+  onBigWin(level, score) {
+    $('#win-msg').textContent = `Completaste el nivel ${level}`;
+    $('#win-score').textContent = String(score);
+    show('screen-win');
+  },
+  async onGameOver(score, meta) {
     show('screen-over');
+    $('#over-title').textContent = meta?.won ? '¡Pack completo!' : '¡Se acabó el azúcar!';
     $('#final-score').textContent = String(score);
     const s = getState();
-    $('#over-best').textContent = `Tu récord: ${Math.max(score, s.bestScore || 0)} · Mejor combo: ${game.bestCombo}`;
+    $('#over-best').textContent = `Nivel alcanzado: ${meta?.level || 1} · Tu récord: ${Math.max(
+      score,
+      s.bestScore || 0
+    )}`;
     const msg = await submitScore(score);
     $('#score-msg').textContent = msg;
   },
 });
 
+function showToast(label) {
+  if (!label) return;
+  comboToast.hidden = false;
+  comboToast.textContent = label;
+  comboToast.style.animation = 'none';
+  void comboToast.offsetWidth;
+  comboToast.style.animation = '';
+  clearTimeout(comboToast._t);
+  comboToast._t = setTimeout(() => {
+    comboToast.hidden = true;
+  }, 900);
+}
+
 function show(id) {
-  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account'].forEach((s) => {
-    $(`#${s}`).classList.toggle('hidden', s !== id);
-  });
+  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account', 'screen-win'].forEach(
+    (s) => {
+      $(`#${s}`).classList.toggle('hidden', s !== id);
+    }
+  );
 }
 
 function hideAllOverlays() {
-  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account'].forEach((s) => {
-    $(`#${s}`).classList.add('hidden');
-  });
+  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account', 'screen-win'].forEach(
+    (s) => {
+      $(`#${s}`).classList.add('hidden');
+    }
+  );
 }
 
 async function api(path, opts) {
@@ -91,7 +115,6 @@ async function submitScore(score) {
     });
     if (data.bestScore != null) {
       updateState({ bestScore: data.bestScore });
-      bestEl.textContent = String(data.bestScore);
     }
     if (data.updated) {
       return data.previousBest > 0
@@ -158,6 +181,28 @@ async function paintLandingBoard() {
   }
 }
 
+function shareText(score, extra = '') {
+  return `🍬 Saqué ${score} puntos en Flechas de Azúcar (Cake Play) de Cake Studio Guatemala.${extra} ¿Me superas?\nhttps://juego.cakestudiogt.com`;
+}
+
+async function doShare(score, extra = '') {
+  const text = shareText(score, extra);
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Flechas de Azúcar', text });
+      return;
+    }
+  } catch {
+    /* cancelled */
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('¡Texto copiado!');
+  } catch {
+    prompt('Copia y comparte:', text);
+  }
+}
+
 function startGame() {
   const nick = ($('#nick-input').value || '').trim().slice(0, 24) || 'Jugador';
   updateState({ nickname: nick });
@@ -189,6 +234,14 @@ $('#btn-board-close').addEventListener('click', () => {
   if (game.gameOver) show('screen-over');
   else if (!game.running) show('screen-start');
   else hideAllOverlays();
+});
+
+$('#btn-undo').addEventListener('click', () => {
+  if (!game.undo()) showToast('Nada que deshacer');
+});
+$('#btn-restart').addEventListener('click', () => {
+  game.restartLevel();
+  showToast('Nivel reiniciado');
 });
 
 $('#btn-mute').addEventListener('click', () => {
@@ -276,7 +329,6 @@ $('#btn-reclaim').addEventListener('click', async () => {
       bestScore: data.player.bestScore,
       hasWhatsapp: true,
     });
-    bestEl.textContent = String(data.player.bestScore || 0);
     $('#nick-input').value = data.player.nickname || '';
     msg.textContent = `¡Cuenta recuperada! Hola, ${data.player.nickname}. Récord: ${data.player.bestScore}`;
     msg.classList.remove('error');
@@ -286,23 +338,14 @@ $('#btn-reclaim').addEventListener('click', async () => {
   }
 });
 
-$('#btn-share').addEventListener('click', async () => {
-  const score = $('#final-score').textContent;
-  const text = `🎂 Saqué ${score} puntos en Cake Blast (Cake Play) de Cake Studio Guatemala. ¿Me superas?\nhttps://juego.cakestudiogt.com`;
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: 'Cake Blast', text });
-      return;
-    }
-  } catch {
-    /* cancelled */
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    $('#score-msg').textContent = 'Texto copiado. ¡Pégalo en WhatsApp o Instagram!';
-  } catch {
-    prompt('Copia y comparte:', text);
-  }
+$('#btn-share').addEventListener('click', () => {
+  doShare($('#final-score').textContent);
+});
+$('#btn-win-share').addEventListener('click', () => {
+  doShare($('#win-score').textContent, ' ¡Gran racha!');
+});
+$('#btn-win-continue').addEventListener('click', () => {
+  hideAllOverlays();
 });
 
 paintLandingBoard();

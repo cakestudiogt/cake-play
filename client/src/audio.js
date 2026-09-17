@@ -37,14 +37,17 @@ function beep({ freq = 440, dur = 0.08, type = 'sine', gain = 0.06, slide = 0 })
   o.stop(c.currentTime + dur + 0.02);
 }
 
-export function sfxPlace() {
-  beep({ freq: 360, dur: 0.05, type: 'triangle', gain: 0.05 });
-  setTimeout(() => beep({ freq: 480, dur: 0.04, type: 'sine', gain: 0.03 }), 30);
+export function sfxSlide() {
+  beep({ freq: 320, dur: 0.12, type: 'sine', gain: 0.045, slide: 180 });
 }
 
 export function sfxClear() {
-  beep({ freq: 420, dur: 0.1, type: 'sine', gain: 0.06, slide: 160 });
-  setTimeout(() => beep({ freq: 620, dur: 0.12, type: 'triangle', gain: 0.05 }), 50);
+  beep({ freq: 480, dur: 0.1, type: 'triangle', gain: 0.055, slide: 200 });
+  setTimeout(() => beep({ freq: 720, dur: 0.1, type: 'sine', gain: 0.04 }), 40);
+}
+
+export function sfxBlocked() {
+  beep({ freq: 180, dur: 0.14, type: 'sawtooth', gain: 0.035, slide: -40 });
 }
 
 export function sfxCombo(n = 2) {
@@ -55,13 +58,21 @@ export function sfxCombo(n = 2) {
   }
 }
 
-export function sfxDeal() {
-  beep({ freq: 300, dur: 0.04, type: 'triangle', gain: 0.03 });
-  setTimeout(() => beep({ freq: 380, dur: 0.04, type: 'triangle', gain: 0.03 }), 40);
-  setTimeout(() => beep({ freq: 460, dur: 0.05, type: 'sine', gain: 0.03 }), 80);
+export function sfxLevelUp() {
+  beep({ freq: 523, dur: 0.1, type: 'sine', gain: 0.05 });
+  setTimeout(() => beep({ freq: 659, dur: 0.1, type: 'sine', gain: 0.05 }), 80);
+  setTimeout(() => beep({ freq: 784, dur: 0.16, type: 'triangle', gain: 0.055, slide: 40 }), 160);
 }
 
 export function sfxGameOver() {
   beep({ freq: 280, dur: 0.2, type: 'sawtooth', gain: 0.04, slide: -120 });
   setTimeout(() => beep({ freq: 180, dur: 0.28, type: 'triangle', gain: 0.05 }), 120);
+}
+
+export function vibrate(ms = 12) {
+  try {
+    if (!muted && navigator.vibrate) navigator.vibrate(ms);
+  } catch {
+    /* ignore */
+  }
 }

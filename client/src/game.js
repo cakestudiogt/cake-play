@@ -1,512 +1,526 @@
 import {
-  BOARD_SIZE,
-  dealHand,
-  emptyBoard,
-  canPlace,
-  canFitAnywhere,
-  placePiece,
-  comboLabel,
-  scorePlacement,
-} from './pieces.js';
-import { sfxPlace, sfxClear, sfxCombo, sfxGameOver, sfxDeal } from './audio.js';
+  LEVELS,
+  cloneLevel,
+  countArrows,
+  pathClear,
+  listMovable,
+} from './levels.js';
+import {
+  sfxSlide,
+  sfxClear,
+  sfxBlocked,
+  sfxCombo,
+  sfxLevelUp,
+  sfxGameOver,
+  vibrate,
+} from './audio.js';
 
-const PAD = 10;
-const TRAY_GAP = 10;
-const TRAY_H_RATIO = 0.22;
+const DELTA = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
+const ARROW_GLYPH = { U: '↑', D: '↓', L: '←', R: '→' };
+const COLORS = {
+  U: '#1e4f70',
+  D: '#BF6C58',
+  L: '#e97a6f',
+  R: '#5ca370',
+};
+const MAX_HEARTS = 3;
 
+/**
+ * Scoring (documented in UI):
+ * - Run score climbs across levels until you lose all hearts.
+ * - Clear a level: 100 × nivel + 15 × flechas + 40 × vidas restantes + time bonus (0–80).
+ * - Quick clears within 1.2s of each other add combo (+25 per streak step).
+ * - Mistap (blocked path): −1 vida. 0 vidas → fin de partida.
+ * - Leaderboard stores best run score (higher only).
+ */
 export class CakeGame {
-  /**
-   * @param {HTMLCanvasElement} canvas
-   * @param {{
-   *   onScore:(n:number)=>void,
-   *   onBestCombo:(n:number)=>void,
-   *   onHand:(hand:any[])=>void,
-   *   onGameOver:(score:number)=>void,
-   *   onCombo:(label:string, lines:number)=>void,
-   * }} hooks
-   */
-  constructor(canvas, hooks) {
+  constructor(canvas, hooks = {}) {
     this.canvas = canvas;
-    this.hooks = hooks;
     this.ctx = canvas.getContext('2d');
-    this.score = 0;
-    this.bestCombo = 0;
-    this.clearStreak = 0;
+    this.hooks = hooks;
     this.running = false;
     this.gameOver = false;
-    this.board = emptyBoard();
-    this.hand = dealHand();
+    this.levelIndex = 0;
+    this.score = 0;
+    this.hearts = MAX_HEARTS;
+    this.grid = null;
+    this.size = 0;
+    this.undoStack = [];
+    this.anim = null; // { r,c,dir, progress, fromR, fromC, trail[] }
+    this.flash = null; // { r,c, t, kind }
     this.particles = [];
-    this.flashes = []; // cleared cell flashes
-    this.shake = 0;
-    this.drag = null; // { index, offsetX, offsetY, ghostRow, ghostCol, valid }
+    this.comboStreak = 0;
+    this.lastClearAt = 0;
+    this.levelStartedAt = 0;
+    this.arrowsAtStart = 0;
+    this.dpr = 1;
+    this.boardRect = { x: 0, y: 0, w: 0, h: 0, cell: 0 };
     this._raf = 0;
-    this._pointerId = null;
-
+    this._bind();
     this._resize();
-    this._bindInput();
-    window.addEventListener('resize', () => {
-      this._resize();
-      this._draw();
-    });
   }
 
-  _resize() {
-    const shell = this.canvas.parentElement;
-    const rect = shell.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.cssW = rect.width;
-    this.cssH = rect.height;
-    this.canvas.width = Math.floor(rect.width * dpr);
-    this.canvas.height = Math.floor(rect.height * dpr);
-    this.canvas.style.width = `${rect.width}px`;
-    this.canvas.style.height = `${rect.height}px`;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.W = rect.width;
-    this.H = rect.height;
+  _bind() {
+    this._onResize = () => this._resize();
+    window.addEventListener('resize', this._onResize);
+    this.canvas.addEventListener('pointerdown', (e) => this._onPointer(e));
+  }
 
-    this.trayTop = this.H * (1 - TRAY_H_RATIO);
-    this.boardArea = {
-      x: PAD,
-      y: PAD,
-      w: this.W - PAD * 2,
-      h: this.trayTop - PAD - 8,
-    };
-    const side = Math.min(this.boardArea.w, this.boardArea.h);
-    this.cell = side / BOARD_SIZE;
-    this.gridX = this.boardArea.x + (this.boardArea.w - side) / 2;
-    this.gridY = this.boardArea.y + (this.boardArea.h - side) / 2;
-    this.gridSize = side;
-
-    // tray slots
-    const slotW = (this.W - PAD * 2 - TRAY_GAP * 2) / 3;
-    const slotH = this.H - this.trayTop - PAD;
-    this.slots = [0, 1, 2].map((i) => ({
-      x: PAD + i * (slotW + TRAY_GAP),
-      y: this.trayTop,
-      w: slotW,
-      h: slotH,
-    }));
+  destroy() {
+    window.removeEventListener('resize', this._onResize);
+    cancelAnimationFrame(this._raf);
   }
 
   start() {
-    this.score = 0;
-    this.bestCombo = 0;
-    this.clearStreak = 0;
     this.running = true;
     this.gameOver = false;
-    this.board = emptyBoard();
-    this.hand = dealHand();
+    this.levelIndex = 0;
+    this.score = 0;
+    this.hearts = MAX_HEARTS;
+    this.undoStack = [];
+    this.anim = null;
+    this.flash = null;
     this.particles = [];
-    this.flashes = [];
-    this.shake = 0;
-    this.drag = null;
-    this.hooks.onScore?.(0);
-    this.hooks.onBestCombo?.(0);
-    this.hooks.onHand?.(this.hand);
-    sfxDeal();
-    this._ensureLoop();
-    this._checkGameOver();
+    this.comboStreak = 0;
+    this.lastClearAt = 0;
+    this._loadLevel(0);
+    this.hooks.onScore?.(this.score);
+    this.hooks.onLevel?.(1, LEVELS.length);
+    this.hooks.onHearts?.(this.hearts, MAX_HEARTS);
+    this._loop();
   }
 
-  _ensureLoop() {
-    if (this._raf) return;
-    const tick = () => {
-      this._raf = requestAnimationFrame(tick);
-      this._update();
-      this._draw();
+  _loadLevel(idx) {
+    const src = LEVELS[idx % LEVELS.length];
+    const level = cloneLevel(src);
+    this.levelIndex = idx;
+    this.grid = level.grid;
+    this.size = level.size;
+    this.undoStack = [];
+    this.anim = null;
+    this.arrowsAtStart = countArrows(this.grid);
+    this.levelStartedAt = performance.now();
+    this.hooks.onLevel?.(idx + 1, LEVELS.length);
+    this._resize();
+  }
+
+  undo() {
+    if (!this.running || this.gameOver || this.anim) return false;
+    if (!this.undoStack.length) return false;
+    this.grid = this.undoStack.pop();
+    vibrate(8);
+    return true;
+  }
+
+  restartLevel() {
+    if (!this.running || this.gameOver || this.anim) return;
+    this._loadLevel(this.levelIndex);
+    vibrate(10);
+  }
+
+  _snapshot() {
+    return this.grid.map((row) => row.slice());
+  }
+
+  _cellAt(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) * this.dpr - this.boardRect.x) / this.boardRect.cell;
+    const y = ((clientY - rect.top) * this.dpr - this.boardRect.y) / this.boardRect.cell;
+    const c = Math.floor(x);
+    const r = Math.floor(y);
+    if (r < 0 || c < 0 || r >= this.size || c >= this.size) return null;
+    return { r, c };
+  }
+
+  _onPointer(e) {
+    if (!this.running || this.gameOver || this.anim) return;
+    e.preventDefault();
+    const cell = this._cellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    const { r, c } = cell;
+    const dir = this.grid[r][c];
+    if (!dir) return;
+
+    if (!pathClear(this.grid, r, c)) {
+      this.flash = { r, c, t: 1, kind: 'bad' };
+      sfxBlocked();
+      vibrate([20, 40, 20]);
+      this.hearts -= 1;
+      this.hooks.onHearts?.(this.hearts, MAX_HEARTS);
+      this.hooks.onToast?.('¡Camino bloqueado!');
+      if (this.hearts <= 0) {
+        this._endRun();
+      }
+      return;
+    }
+
+    this.undoStack.push(this._snapshot());
+    this._startSlide(r, c, dir);
+  }
+
+  _startSlide(r, c, dir) {
+    const [dr, dc] = DELTA[dir];
+    const trail = [];
+    let nr = r;
+    let nc = c;
+    // include start + empties until off-board
+    while (nr >= 0 && nr < this.size && nc >= 0 && nc < this.size) {
+      trail.push({ r: nr, c: nc });
+      nr += dr;
+      nc += dc;
+    }
+    // exit cell just outside
+    trail.push({ r: nr, c: nc });
+
+    this.anim = {
+      r,
+      c,
+      dir,
+      progress: 0,
+      duration: Math.min(0.55, 0.12 + trail.length * 0.045),
+      trail,
+      fromR: r,
+      fromC: c,
     };
-    this._raf = requestAnimationFrame(tick);
+    // remove from grid immediately so path updates; draw via anim
+    this.grid[r][c] = null;
+    sfxSlide();
+    vibrate(10);
   }
 
-  _update() {
-    if (this.shake > 0) this.shake *= 0.85;
-    if (this.shake < 0.15) this.shake = 0;
+  _finishSlide(anim) {
+    const now = performance.now();
+    if (now - this.lastClearAt < 1200) this.comboStreak += 1;
+    else this.comboStreak = 1;
+    this.lastClearAt = now;
 
+    sfxClear();
+    if (this.comboStreak >= 2) {
+      sfxCombo(this.comboStreak);
+      this.hooks.onCombo?.(
+        this.comboStreak === 2 ? '¡Doble!' : this.comboStreak === 3 ? '¡Triple!' : `¡x${this.comboStreak}!`
+      );
+    }
+
+    // frosting pop at exit
+    const last = anim.trail[anim.trail.length - 1];
+    this._burst(last.r, last.c, COLORS[anim.dir]);
+
+    if (countArrows(this.grid) === 0) {
+      this._completeLevel();
+    }
+  }
+
+  _completeLevel() {
+    const elapsed = (performance.now() - this.levelStartedAt) / 1000;
+    const levelNum = this.levelIndex + 1;
+    const timeBonus = Math.max(0, Math.min(80, Math.round(80 - elapsed * 2)));
+    const comboBonus = Math.max(0, (this.comboStreak - 1) * 25);
+    const gained =
+      100 * levelNum + 15 * this.arrowsAtStart + 40 * this.hearts + timeBonus + comboBonus;
+    this.score += gained;
+    this.hooks.onScore?.(this.score);
+    sfxLevelUp();
+    vibrate([10, 30, 10]);
+    this.hooks.onToast?.(`¡Nivel ${levelNum}! +${gained}`);
+    this.hooks.onLevelComplete?.(levelNum, gained, this.score);
+
+    // Big win share prompt every 5 levels starting at 5
+    if (levelNum >= 5 && levelNum % 5 === 0) {
+      this.hooks.onBigWin?.(levelNum, this.score);
+    }
+
+    const next = this.levelIndex + 1;
+    if (next >= LEVELS.length) {
+      // Completed all — continue with denser wrap or celebrate run end as win
+      this.hooks.onToast?.('¡Pack completo! +500');
+      this.score += 500;
+      this.hooks.onScore?.(this.score);
+      this._endRun(true);
+      return;
+    }
+    setTimeout(() => {
+      if (!this.running || this.gameOver) return;
+      this._loadLevel(next);
+    }, 480);
+  }
+
+  _endRun(won = false) {
+    this.gameOver = true;
+    this.running = false;
+    if (!won) sfxGameOver();
+    this.hooks.onGameOver?.(this.score, {
+      level: this.levelIndex + 1,
+      won,
+      hearts: this.hearts,
+    });
+  }
+
+  _burst(r, c, color) {
+    const { x, y, cell } = this.boardRect;
+    const cx = x + (c + 0.5) * cell;
+    const cy = y + (r + 0.5) * cell;
+    for (let i = 0; i < 14; i++) {
+      const ang = (Math.PI * 2 * i) / 14 + Math.random() * 0.3;
+      const sp = 40 + Math.random() * 90;
+      this.particles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        life: 1,
+        color,
+        size: 3 + Math.random() * 4,
+      });
+    }
+  }
+
+  _resize() {
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.max(1, Math.floor(w * this.dpr));
+    this.canvas.height = Math.max(1, Math.floor(h * this.dpr));
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
+
+    const pad = 28 * this.dpr;
+    const topHud = 8 * this.dpr;
+    const availW = this.canvas.width - pad * 2;
+    const availH = this.canvas.height - pad * 2 - topHud;
+    const n = Math.max(this.size || 4, 2);
+    const cell = Math.floor(Math.min(availW / n, availH / n));
+    const bw = cell * n;
+    const bh = cell * n;
+    this.boardRect = {
+      x: Math.floor((this.canvas.width - bw) / 2),
+      y: Math.floor((this.canvas.height - bh) / 2 + topHud * 0.3),
+      w: bw,
+      h: bh,
+      cell,
+    };
+  }
+
+  _loop = () => {
+    this._raf = requestAnimationFrame(this._loop);
+    this._tick(1 / 60);
+    this._draw();
+  };
+
+  _tick(dt) {
+    if (this.anim) {
+      this.anim.progress += dt / this.anim.duration;
+      if (this.anim.progress >= 1) {
+        const a = this.anim;
+        this.anim = null;
+        this._finishSlide(a);
+      }
+    }
+    if (this.flash) {
+      this.flash.t -= dt * 2.2;
+      if (this.flash.t <= 0) this.flash = null;
+    }
     for (const p of this.particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.12;
-      p.life -= 1;
-      p.r *= 0.985;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 120 * dt;
+      p.life -= dt * 1.6;
     }
     this.particles = this.particles.filter((p) => p.life > 0);
-
-    for (const f of this.flashes) f.t -= 1;
-    this.flashes = this.flashes.filter((f) => f.t > 0);
-  }
-
-  _bindInput() {
-    const canvas = this.canvas;
-
-    const pos = (e) => {
-      const rect = canvas.getBoundingClientRect();
-      const t = e.touches ? e.touches[0] : e.changedTouches ? e.changedTouches[0] : e;
-      return {
-        x: t.clientX - rect.left,
-        y: t.clientY - rect.top,
-      };
-    };
-
-    const onDown = (e) => {
-      if (!this.running || this.gameOver || this.drag) return;
-      const { x, y } = pos(e);
-      const idx = this._hitSlot(x, y);
-      if (idx < 0) return;
-      const piece = this.hand[idx];
-      if (!piece || piece.used) return;
-
-      const slot = this.slots[idx];
-      this.drag = {
-        index: idx,
-        grabX: x,
-        grabY: y,
-        // offset so piece centers under finger a bit above
-        offsetX: 0,
-        offsetY: -this.cell * 1.2,
-        x,
-        y,
-        ghostRow: -1,
-        ghostCol: -1,
-        valid: false,
-      };
-      this._pointerId = e.pointerId ?? null;
-      try {
-        canvas.setPointerCapture?.(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-      e.preventDefault?.();
-    };
-
-    const onMove = (e) => {
-      if (!this.drag) return;
-      const { x, y } = pos(e);
-      this.drag.x = x;
-      this.drag.y = y;
-      this._updateGhost();
-      e.preventDefault?.();
-    };
-
-    const onUp = (e) => {
-      if (!this.drag) return;
-      this._updateGhost();
-      const { ghostRow, ghostCol, valid, index } = this.drag;
-      this.drag = null;
-      this._pointerId = null;
-      if (valid) {
-        this._commitPlace(index, ghostRow, ghostCol);
-      }
-      e.preventDefault?.();
-    };
-
-    canvas.addEventListener('pointerdown', onDown, { passive: false });
-    canvas.addEventListener('pointermove', onMove, { passive: false });
-    canvas.addEventListener('pointerup', onUp, { passive: false });
-    canvas.addEventListener('pointercancel', onUp, { passive: false });
-    // touch fallback
-    canvas.addEventListener('touchstart', onDown, { passive: false });
-    canvas.addEventListener('touchmove', onMove, { passive: false });
-    canvas.addEventListener('touchend', onUp, { passive: false });
-  }
-
-  _hitSlot(x, y) {
-    for (let i = 0; i < this.slots.length; i++) {
-      const s = this.slots[i];
-      if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) return i;
-    }
-    return -1;
-  }
-
-  _updateGhost() {
-    if (!this.drag) return;
-    const piece = this.hand[this.drag.index];
-    if (!piece) return;
-    const gx = this.drag.x + this.drag.offsetX;
-    const gy = this.drag.y + this.drag.offsetY;
-    // map to top-left cell of piece bounding box
-    const col = Math.round((gx - this.gridX) / this.cell - piece.cols / 2 + 0.5) - 0;
-    // better: center the piece under pointer
-    const originCol = Math.floor((gx - this.gridX) / this.cell - (piece.cols - 1) / 2);
-    const originRow = Math.floor((gy - this.gridY) / this.cell - (piece.rows - 1) / 2);
-    this.drag.ghostCol = originCol;
-    this.drag.ghostRow = originRow;
-    this.drag.valid = canPlace(this.board, piece, originRow, originCol);
-  }
-
-  _commitPlace(index, row, col) {
-    const piece = this.hand[index];
-    if (!piece || !canPlace(this.board, piece, row, col)) return;
-
-    const result = placePiece(this.board, piece, row, col);
-    piece.used = true;
-    sfxPlace();
-
-    if (result.linesCleared > 0) {
-      this.clearStreak += 1;
-      this.bestCombo = Math.max(this.bestCombo, this.clearStreak);
-      this.hooks.onBestCombo?.(this.bestCombo);
-      this._burstClear(result);
-      const label = comboLabel(result.linesCleared);
-      if (result.linesCleared >= 2) {
-        sfxCombo(result.linesCleared);
-        this.hooks.onCombo?.(label, result.linesCleared);
-      } else {
-        sfxClear();
-        this.hooks.onCombo?.(label, result.linesCleared);
-      }
-      this.shake = Math.min(10, 3 + result.linesCleared * 1.5);
-    } else {
-      this.clearStreak = 0;
-    }
-
-    const { score: add } = scorePlacement({
-      cellsPlaced: result.cellsPlaced,
-      linesCleared: result.linesCleared,
-      streak: this.clearStreak,
-    });
-    this.score += add;
-    this.hooks.onScore?.(this.score);
-    this.hooks.onHand?.(this.hand);
-
-    // refill hand when all used
-    if (this.hand.every((p) => !p || p.used)) {
-      this.hand = dealHand();
-      sfxDeal();
-      this.hooks.onHand?.(this.hand);
-    }
-
-    this._checkGameOver();
-  }
-
-  _burstClear(result) {
-    for (const [r, c, cell] of result.clearedCells) {
-      const cx = this.gridX + c * this.cell + this.cell / 2;
-      const cy = this.gridY + r * this.cell + this.cell / 2;
-      this.flashes.push({ r, c, color: cell?.color || '#ea98af', t: 14, max: 14 });
-      const n = 8 + Math.floor(Math.random() * 6);
-      for (let i = 0; i < n; i++) {
-        const ang = (Math.PI * 2 * i) / n + Math.random() * 0.4;
-        const spd = 1.5 + Math.random() * 3.5;
-        this.particles.push({
-          x: cx,
-          y: cy,
-          vx: Math.cos(ang) * spd,
-          vy: Math.sin(ang) * spd - 1.5,
-          r: 2 + Math.random() * 3.5,
-          color: cell?.icing || cell?.color || '#fff',
-          life: 28 + Math.random() * 18,
-        });
-      }
-    }
-  }
-
-  _checkGameOver() {
-    const remaining = this.hand.filter((p) => p && !p.used);
-    if (remaining.length === 0) return;
-    const anyFit = remaining.some((p) => canFitAnywhere(this.board, p));
-    if (!anyFit) {
-      this.gameOver = true;
-      this.running = false;
-      sfxGameOver();
-      setTimeout(() => this.hooks.onGameOver?.(this.score), 350);
-    }
   }
 
   _draw() {
     const ctx = this.ctx;
-    const sx = this.shake ? (Math.random() - 0.5) * this.shake : 0;
-    const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0;
+    const { width, height } = this.canvas;
+    ctx.clearRect(0, 0, width, height);
 
-    ctx.clearRect(0, 0, this.W, this.H);
+    // soft plate background
+    const g = ctx.createLinearGradient(0, 0, 0, height);
+    g.addColorStop(0, '#fff7f5');
+    g.addColorStop(1, '#f3e0db');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+
+    if (!this.grid) return;
+
+    const { x, y, cell, w, h } = this.boardRect;
+    const n = this.size;
+
+    // board shadow + plate
     ctx.save();
-    ctx.translate(sx, sy);
-
-    // board plate
-    this._roundRect(
-      this.gridX - 6,
-      this.gridY - 6,
-      this.gridSize + 12,
-      this.gridSize + 12,
-      16
-    );
-    ctx.fillStyle = 'rgba(255,253,251,0.95)';
+    roundRect(ctx, x - 6, y - 6, w + 12, h + 12, 18 * this.dpr);
+    ctx.fillStyle = 'rgba(30,79,112,0.08)';
+    ctx.fill();
+    roundRect(ctx, x, y, w, h, 14 * this.dpr);
+    ctx.fillStyle = '#faf3f0';
     ctx.fill();
     ctx.strokeStyle = 'rgba(234,152,175,0.55)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * this.dpr;
     ctx.stroke();
+    ctx.restore();
+
+    // frosting portals on edges (sugar swirls)
+    this._drawPortals();
 
     // grid cells
-    for (let r = 0; r < BOARD_SIZE; r++) {
-      for (let c = 0; c < BOARD_SIZE; c++) {
-        const x = this.gridX + c * this.cell;
-        const y = this.gridY + r * this.cell;
-        const pad = 2;
-        this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
-        const cell = this.board[r][c];
-        if (cell) {
-          this._drawCakeCell(x + pad, y + pad, this.cell - pad * 2, cell.color, cell.icing);
-        } else {
-          ctx.fillStyle = 'rgba(234,152,175,0.12)';
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const cx = x + c * cell;
+        const cy = y + r * cell;
+        const inset = cell * 0.06;
+        roundRect(ctx, cx + inset, cy + inset, cell - inset * 2, cell - inset * 2, cell * 0.18);
+        ctx.fillStyle = (r + c) % 2 === 0 ? 'rgba(234,152,175,0.12)' : 'rgba(30,79,112,0.04)';
+        ctx.fill();
+
+        const dir = this.grid[r][c];
+        if (dir) this._drawArrow(cx, cy, cell, dir, 1);
+
+        if (this.flash && this.flash.r === r && this.flash.c === c) {
+          ctx.save();
+          roundRect(ctx, cx + inset, cy + inset, cell - inset * 2, cell - inset * 2, cell * 0.18);
+          ctx.fillStyle = `rgba(233,122,111,${0.45 * this.flash.t})`;
           ctx.fill();
+          ctx.restore();
         }
       }
     }
 
-    // flashes
-    for (const f of this.flashes) {
-      const a = f.t / f.max;
-      const x = this.gridX + f.c * this.cell;
-      const y = this.gridY + f.r * this.cell;
-      const pad = 2;
-      this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
-      ctx.fillStyle = `rgba(255,255,255,${0.85 * a})`;
-      ctx.fill();
-      ctx.strokeStyle = f.color;
-      ctx.globalAlpha = a;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    // ghost
-    if (this.drag) {
-      const piece = this.hand[this.drag.index];
-      if (piece) {
-        const { ghostRow, ghostCol, valid } = this.drag;
-        if (ghostRow >= -2 && ghostCol >= -2) {
-          for (const [dr, dc] of piece.cells) {
-            const r = ghostRow + dr;
-            const c = ghostCol + dc;
-            if (r < 0 || c < 0 || r >= BOARD_SIZE || c >= BOARD_SIZE) continue;
-            const x = this.gridX + c * this.cell;
-            const y = this.gridY + r * this.cell;
-            const pad = 2;
-            this._roundRect(x + pad, y + pad, this.cell - pad * 2, this.cell - pad * 2, 6);
-            ctx.fillStyle = valid ? `${piece.color}99` : 'rgba(233,122,111,0.45)';
-            ctx.fill();
-            if (valid) {
-              ctx.strokeStyle = '#fff';
-              ctx.lineWidth = 2;
-              ctx.stroke();
-            }
-          }
-        }
+    // hint glow on movable (subtle)
+    if (!this.anim && this.running && !this.gameOver) {
+      const moves = listMovable(this.grid);
+      for (const [r, c] of moves) {
+        const cx = x + c * cell + cell / 2;
+        const cy = y + r * cell + cell / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cell * 0.42, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(92,163,112,0.35)';
+        ctx.lineWidth = 2 * this.dpr;
+        ctx.stroke();
       }
     }
 
-    // tray background
-    this._roundRect(PAD / 2, this.trayTop - 4, this.W - PAD, this.H - this.trayTop + 2, 18);
-    ctx.fillStyle = 'rgba(255,253,251,0.72)';
-    ctx.fill();
+    // sliding arrow + trail
+    if (this.anim) {
+      const a = this.anim;
+      const t = Math.min(1, a.progress);
+      const eased = 1 - Math.pow(1 - t, 2.4);
+      const idx = eased * (a.trail.length - 1);
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(a.trail.length - 1, i0 + 1);
+      const frac = idx - i0;
+      const p0 = a.trail[i0];
+      const p1 = a.trail[i1];
+      const pr = p0.r + (p1.r - p0.r) * frac;
+      const pc = p0.c + (p1.c - p0.c) * frac;
 
-    // tray pieces
-    for (let i = 0; i < 3; i++) {
-      const slot = this.slots[i];
-      this._roundRect(slot.x, slot.y, slot.w, slot.h, 14);
-      ctx.fillStyle = 'rgba(244,234,233,0.9)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(234,152,175,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      // frosting trail
+      for (let i = 0; i <= i0; i++) {
+        const p = a.trail[i];
+        const tx = x + p.c * cell + cell / 2;
+        const ty = y + p.r * cell + cell / 2;
+        ctx.beginPath();
+        ctx.arc(tx, ty, cell * 0.12 * (1 - i / a.trail.length), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(234,152,175,${0.35 * (1 - t * 0.5)})`;
+        ctx.fill();
+      }
 
-      const piece = this.hand[i];
-      if (!piece || piece.used) continue;
-      if (this.drag && this.drag.index === i) continue;
+      const ax = x + pc * cell;
+      const ay = y + pr * cell;
+      this._drawArrow(ax, ay, cell, a.dir, 1 - t * 0.15);
 
-      const fits = canFitAnywhere(this.board, piece);
-      ctx.globalAlpha = fits ? 1 : 0.38;
-      this._drawPieceInSlot(piece, slot);
-      ctx.globalAlpha = 1;
-    }
-
-    // dragging piece under finger
-    if (this.drag) {
-      const piece = this.hand[this.drag.index];
-      if (piece) {
-        const cell = this.cell * 0.92;
-        const w = piece.cols * cell;
-        const h = piece.rows * cell;
-        const ox = this.drag.x + this.drag.offsetX - w / 2;
-        const oy = this.drag.y + this.drag.offsetY - h / 2;
-        ctx.save();
-        ctx.shadowColor = 'rgba(30,79,112,0.35)';
-        ctx.shadowBlur = 16;
-        ctx.shadowOffsetY = 8;
-        for (const [dr, dc] of piece.cells) {
-          const x = ox + dc * cell;
-          const y = oy + dr * cell;
-          this._drawCakeCell(x + 1, y + 1, cell - 2, piece.color, piece.icing);
-        }
-        ctx.restore();
+      // portal suck near end
+      if (t > 0.7) {
+        const exit = a.trail[a.trail.length - 1];
+        const ex = x + exit.c * cell + cell / 2;
+        const ey = y + exit.r * cell + cell / 2;
+        ctx.beginPath();
+        ctx.arc(ex, ey, cell * 0.35 * (t - 0.7) * 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(234,152,175,${0.4 * (1 - t)})`;
+        ctx.fill();
       }
     }
 
     // particles
     for (const p of this.particles) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.globalAlpha = Math.max(0, p.life);
       ctx.fillStyle = p.color;
-      ctx.globalAlpha = Math.min(1, p.life / 20);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * this.dpr * 0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+  }
 
+  _drawPortals() {
+    const ctx = this.ctx;
+    const { x, y, cell, w, h } = this.boardRect;
+    ctx.save();
+    // Soft frosting portal rings on four edges (cake metaphor: sugar swirl exits)
+    const rings = [
+      [x + w / 2, y - cell * 0.22],
+      [x + w / 2, y + h + cell * 0.22],
+      [x - cell * 0.22, y + h / 2],
+      [x + w + cell * 0.22, y + h / 2],
+    ];
+    for (const [px, py] of rings) {
+      ctx.beginPath();
+      ctx.arc(px, py, cell * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(234,152,175,0.35)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, cell * 0.12, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(233,122,111,0.55)';
+      ctx.fill();
+    }
     ctx.restore();
   }
 
-  _drawPieceInSlot(piece, slot) {
-    const maxDim = Math.max(piece.rows, piece.cols);
-    const cell = Math.min(slot.w, slot.h) / (maxDim + 1.1);
-    const w = piece.cols * cell;
-    const h = piece.rows * cell;
-    const ox = slot.x + (slot.w - w) / 2;
-    const oy = slot.y + (slot.h - h) / 2;
-    for (const [dr, dc] of piece.cells) {
-      this._drawCakeCell(ox + dc * cell + 1, oy + dr * cell + 1, cell - 2, piece.color, piece.icing);
-    }
-  }
-
-  _drawCakeCell(x, y, s, color, icing) {
+  _drawArrow(cx, cy, cell, dir, alpha = 1) {
     const ctx = this.ctx;
-    this._roundRect(x, y, s, s, Math.max(4, s * 0.22));
-    const g = ctx.createLinearGradient(x, y, x, y + s);
-    g.addColorStop(0, icing || '#fff');
-    g.addColorStop(0.35, color);
-    g.addColorStop(1, this._shade(color, -22));
-    ctx.fillStyle = g;
+    const inset = cell * 0.1;
+    const x = cx + inset;
+    const y = cy + inset;
+    const s = cell - inset * 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    roundRect(ctx, x, y, s, s, s * 0.28);
+    const grad = ctx.createLinearGradient(x, y, x + s, y + s);
+    grad.addColorStop(0, '#fffdfb');
+    grad.addColorStop(1, COLORS[dir] + '33');
+    ctx.fillStyle = grad;
     ctx.fill();
-    // frosting shine
+    ctx.strokeStyle = COLORS[dir];
+    ctx.lineWidth = Math.max(2, cell * 0.06);
+    ctx.stroke();
+
+    // frosting dollop
     ctx.beginPath();
-    ctx.ellipse(x + s * 0.35, y + s * 0.3, s * 0.22, s * 0.12, -0.4, 0, Math.PI * 2);
+    ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS[dir];
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + s * 0.38, y + s * 0.38, s * 0.1, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.fill();
-    // sprinkle
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillRect(x + s * 0.55, y + s * 0.48, s * 0.12, s * 0.06);
-  }
 
-  _shade(hex, amt) {
-    const n = hex.replace('#', '');
-    const num = parseInt(n.length === 3 ? n.split('').map((c) => c + c).join('') : n, 16);
-    let r = (num >> 16) + amt;
-    let g = ((num >> 8) & 0xff) + amt;
-    let b = (num & 0xff) + amt;
-    r = Math.max(0, Math.min(255, r));
-    g = Math.max(0, Math.min(255, g));
-    b = Math.max(0, Math.min(255, b));
-    return `rgb(${r},${g},${b})`;
+    ctx.fillStyle = '#fffdfb';
+    ctx.font = `bold ${Math.floor(s * 0.42)}px Nunito, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(ARROW_GLYPH[dir], x + s * 0.5, y + s * 0.52);
+    ctx.restore();
   }
+}
 
-  _roundRect(x, y, w, h, r) {
-    const ctx = this.ctx;
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rr);
-    ctx.arcTo(x + w, y + h, x, y + h, rr);
-    ctx.arcTo(x, y + h, x, y, rr);
-    ctx.arcTo(x, y, x + w, y, rr);
-    ctx.closePath();
-  }
+function roundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }

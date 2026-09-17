@@ -585,3 +585,55 @@ body {
     max-height: min(76dvh, 720px);
   }
 }
+
+.hud-value.hearts {
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  color: var(--coral);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tool-btn {
+  border: 2px solid rgba(30, 79, 112, 0.15);
+  background: rgba(255, 253, 251, 0.9);
+  color: var(--navy);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.tool-btn:active {
+  transform: scale(0.97);
+  background: var(--cream);
+}
+
+.game-shell {
+  aspect-ratio: 1 / 1.05;
+  min-height: 320px;
+}
+
+#game {
+  cursor: pointer;
+}
+
+.credit {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(30, 79, 112, 0.45);
+  margin-top: 4px;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+#app.playing .tip {
+  font-size: 0.78rem;
+}

@@ -1,7 +1,7 @@
 {
   "name": "cake-play",
-  "version": "2.0.0",
-  "description": "Cake Play — Cake Blast (Block Blast–style) puzzle for Cake Studio Guatemala",
+  "version": "3.0.0",
+  "description": "Cake Play — Flechas de Azúcar (Arrows puzzle) for Cake Studio Guatemala",
   "private": true,
   "type": "module",
   "scripts": {

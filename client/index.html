@@ -9,9 +9,9 @@
     <meta name="theme-color" content="#ea98af" />
     <meta
       name="description"
-      content="Cake Blast — coloca bloques de pastel, limpia filas y columnas. Cake Studio Guatemala."
+      content="Flechas de Azúcar — puzzle de flechas de frosting. Cake Play · Cake Studio Guatemala."
     />
-    <title>Cake Blast · Cake Play · Cake Studio</title>
+    <title>Flechas de Azúcar · Cake Play · Cake Studio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,17 +20,17 @@
     />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%82%3C/text%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%A7%3C/text%3E%3C/svg%3E"
     />
   </head>
   <body>
     <div id="app">
       <header class="topbar">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">🎂</span>
+          <span class="brand-mark" aria-hidden="true">🍬</span>
           <div>
             <h1>Cake Play</h1>
-            <p class="tagline">Cake Blast · Cake Studio GT</p>
+            <p class="tagline">Flechas de Azúcar · Cake Studio GT</p>
           </div>
         </div>
         <div class="top-actions">
@@ -43,36 +43,44 @@
       <main class="stage-wrap">
         <div class="hud">
           <div class="hud-block">
+            <span class="hud-label">Nivel</span>
+            <span id="level" class="hud-value">1</span>
+          </div>
+          <div class="hud-block">
             <span class="hud-label">Puntos</span>
             <span id="score" class="hud-value">0</span>
           </div>
           <div class="hud-block">
-            <span class="hud-label">Combo</span>
-            <span id="combo-best" class="hud-value">0</span>
-          </div>
-          <div class="hud-block">
-            <span class="hud-label">Récord</span>
-            <span id="best" class="hud-value">0</span>
+            <span class="hud-label">Vidas</span>
+            <span id="hearts" class="hud-value hearts">❤❤❤</span>
           </div>
         </div>
 
         <div id="game-shell" class="game-shell">
           <canvas id="game"></canvas>
           <div id="combo-toast" class="combo-toast" hidden></div>
-          <div id="drop-hint" class="drop-hint">Arrastra un pastel al tablero</div>
+          <div id="drop-hint" class="drop-hint">Toca una flecha con camino libre</div>
         </div>
 
-        <p class="tip">Llena <strong>filas o columnas</strong> · combos = más puntos ✨</p>
+        <div class="toolbar">
+          <button type="button" id="btn-undo" class="tool-btn" title="Deshacer">↩ Deshacer</button>
+          <button type="button" id="btn-restart" class="tool-btn" title="Reiniciar nivel">↻ Nivel</button>
+        </div>
+
+        <p class="tip">
+          Puntaje de <strong>partida</strong>: suma al completar niveles · camino bloqueado = −1 vida
+        </p>
         <div id="landing-board" class="landing-board" aria-live="polite"></div>
       </main>
 
       <!-- Start overlay -->
       <section id="screen-start" class="overlay">
         <div class="card hero-card">
-          <div class="hero-emoji">🧁🧱✨</div>
-          <h2>Cake Blast</h2>
+          <div class="hero-emoji">🍬↑↓←→✨</div>
+          <h2>Flechas de Azúcar</h2>
           <p class="lead">
-            El puzzle de pasteles de <strong>Cake Studio</strong>. Coloca bloques, limpia líneas y supera el ranking eterno.
+            El puzzle de flechas de frosting de <strong>Cake Studio</strong>. Despéjalas en el orden correcto y
+            sube en el ranking eterno.
           </p>
           <label class="field">
             <span>Tu apodo</span>
@@ -89,18 +97,21 @@
         <div class="card">
           <h2>Cómo jugar</h2>
           <ul class="how-list bullets">
-            <li>Arrastra cada bloque de pastel al tablero 8×8 (debe caber).</li>
-            <li>Cuando llenas una <strong>fila o columna</strong>, ¡se limpia con explosión de frosting!</li>
-            <li>Si ninguno de tus 3 pasteles cabe → se acabó. Combos = más puntos.</li>
+            <li>Toca una flecha solo si su camino hasta el borde está libre (sin otras flechas).</li>
+            <li>Se desliza al <strong>portal de frosting</strong> y desaparece. ¡Limpia todo el tablero!</li>
+            <li>
+              Camino bloqueado = pierdes una vida. El puntaje de la partida sube al completar niveles
+              (nivel × 100 + bonus).
+            </li>
           </ul>
           <button type="button" id="btn-how-close" class="btn primary">Entendido</button>
         </div>
       </section>
 
-      <!-- Game over -->
+      <!-- Level complete / big win toast handled via combo toast; game over below -->
       <section id="screen-over" class="overlay hidden">
         <div class="card">
-          <h2>¡Se acabó la fiesta!</h2>
+          <h2 id="over-title">¡Se acabó el azúcar!</h2>
           <p class="big-score"><span id="final-score">0</span> pts</p>
           <p id="score-msg" class="score-msg"></p>
           <p id="over-best" class="over-meta"></p>
@@ -110,6 +121,20 @@
           </div>
           <button type="button" id="btn-save-cta" class="btn ghost">Guardar con WhatsApp</button>
           <button type="button" id="btn-over-board" class="btn ghost">Ver ranking</button>
+        </div>
+      </section>
+
+      <!-- Big win share -->
+      <section id="screen-win" class="overlay hidden">
+        <div class="card hero-card">
+          <div class="hero-emoji">🎉🧁</div>
+          <h2>¡Gran racha!</h2>
+          <p class="lead" id="win-msg">Nivel 5 completado</p>
+          <p class="big-score"><span id="win-score">0</span> pts</p>
+          <div class="btn-row">
+            <button type="button" id="btn-win-share" class="btn accent">Compartir</button>
+            <button type="button" id="btn-win-continue" class="btn primary">Seguir</button>
+          </div>
         </div>
       </section>
 
@@ -162,6 +187,8 @@
           <button type="button" id="btn-account-close" class="btn ghost">Cerrar</button>
         </div>
       </section>
+
+      <footer class="credit">Hecho con 💕 por Cake Studio Guatemala</footer>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
