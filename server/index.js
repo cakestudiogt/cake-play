@@ -36,7 +36,7 @@ function softRateLimit(req, res, next) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, name: 'Flechas de Azúcar', version: '3.0.0' });
+  res.json({ ok: true, name: 'Pastel Run', version: '4.0.0', brand: 'Cake Studio Guatemala' });
 });
 
 app.get('/api/leaderboard', (_req, res) => {
@@ -123,7 +123,7 @@ if (isProd) {
 } else {
   app.get('/', (_req, res) => {
     res.type('html').send(`
-      <h1>Cake Play API</h1>
+      <h1>Pastel Run API</h1>
       <p>Dev mode: open the Vite client (default http://localhost:5173).</p>
       <p>API: <a href="/api/leaderboard">/api/leaderboard</a></p>
     `);
@@ -131,5 +131,5 @@ if (isProd) {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Flechas de Azúcar (Cake Play) listening on http://0.0.0.0:${PORT} (${isProd ? 'production' : 'api-dev'})`);
+  console.log(`Pastel Run (Cake Studio) listening on http://0.0.0.0:${PORT} (${isProd ? 'production' : 'api-dev'})`);
 });

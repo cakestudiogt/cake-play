@@ -37,31 +37,31 @@ function beep({ freq = 440, dur = 0.08, type = 'sine', gain = 0.06, slide = 0 })
   o.stop(c.currentTime + dur + 0.02);
 }
 
-export function sfxSlide() {
-  beep({ freq: 320, dur: 0.12, type: 'sine', gain: 0.045, slide: 180 });
+export function sfxLane() {
+  beep({ freq: 360, dur: 0.07, type: 'sine', gain: 0.04, slide: 80 });
 }
 
-export function sfxClear() {
-  beep({ freq: 480, dur: 0.1, type: 'triangle', gain: 0.055, slide: 200 });
-  setTimeout(() => beep({ freq: 720, dur: 0.1, type: 'sine', gain: 0.04 }), 40);
+export function sfxCollect(tier = 1) {
+  const base = 480 + tier * 60;
+  beep({ freq: base, dur: 0.09, type: 'triangle', gain: 0.05, slide: 160 });
+  setTimeout(() => beep({ freq: base + 180, dur: 0.1, type: 'sine', gain: 0.035 }), 35);
 }
 
-export function sfxBlocked() {
-  beep({ freq: 180, dur: 0.14, type: 'sawtooth', gain: 0.035, slide: -40 });
+export function sfxHit() {
+  beep({ freq: 160, dur: 0.16, type: 'sawtooth', gain: 0.04, slide: -60 });
+  setTimeout(() => beep({ freq: 110, dur: 0.2, type: 'triangle', gain: 0.045 }), 80);
 }
 
 export function sfxCombo(n = 2) {
-  beep({ freq: 440 + n * 50, dur: 0.14, type: 'square', gain: 0.035, slide: 220 });
-  setTimeout(() => beep({ freq: 660 + n * 40, dur: 0.16, type: 'sine', gain: 0.05, slide: 80 }), 70);
-  if (n >= 3) {
-    setTimeout(() => beep({ freq: 880, dur: 0.18, type: 'triangle', gain: 0.04, slide: 100 }), 140);
+  beep({ freq: 440 + n * 45, dur: 0.12, type: 'square', gain: 0.032, slide: 200 });
+  setTimeout(() => beep({ freq: 660 + n * 35, dur: 0.14, type: 'sine', gain: 0.045, slide: 90 }), 60);
+  if (n >= 4) {
+    setTimeout(() => beep({ freq: 880, dur: 0.16, type: 'triangle', gain: 0.038, slide: 100 }), 120);
   }
 }
 
-export function sfxLevelUp() {
-  beep({ freq: 523, dur: 0.1, type: 'sine', gain: 0.05 });
-  setTimeout(() => beep({ freq: 659, dur: 0.1, type: 'sine', gain: 0.05 }), 80);
-  setTimeout(() => beep({ freq: 784, dur: 0.16, type: 'triangle', gain: 0.055, slide: 40 }), 160);
+export function sfxJump() {
+  beep({ freq: 280, dur: 0.12, type: 'sine', gain: 0.04, slide: 220 });
 }
 
 export function sfxGameOver() {

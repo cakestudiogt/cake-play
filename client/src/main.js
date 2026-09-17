@@ -1,5 +1,5 @@
 import './styles.css';
-import { CakeGame } from './game.js';
+import { PastelRun } from './game.js';
 import { getState, updateState, generateReclaimCode } from './identity.js';
 import { setMuted, isMuted } from './audio.js';
 
@@ -9,8 +9,9 @@ setMuted(!!state.muted);
 
 const canvas = $('#game');
 const scoreEl = $('#score');
-const levelEl = $('#level');
+const distEl = $('#distance');
 const heartsEl = $('#hearts');
+const comboEl = $('#combo-meter');
 const comboToast = $('#combo-toast');
 const dropHint = $('#drop-hint');
 
@@ -20,37 +21,42 @@ function paintHearts(n, max) {
   heartsEl.textContent = '❤'.repeat(Math.max(0, n)) + '♡'.repeat(Math.max(0, max - n));
 }
 
-const game = new CakeGame(canvas, {
+function paintCombo(n) {
+  if (!comboEl) return;
+  const fill = comboEl.querySelector('.combo-fill');
+  const label = comboEl.querySelector('.combo-label');
+  const pct = Math.min(100, (n / 12) * 100);
+  if (fill) fill.style.width = pct + '%';
+  if (label) label.textContent = n > 1 ? `Combo ×${n}` : 'Combo';
+  comboEl.classList.toggle('hot', n >= 6);
+}
+
+const game = new PastelRun(canvas, {
   onScore(n) {
     scoreEl.textContent = String(n);
   },
-  onLevel(n, total) {
-    levelEl.textContent = String(n);
-    levelEl.title = `${n} / ${total}`;
+  onDistance(n) {
+    if (distEl) distEl.textContent = String(n) + ' m';
   },
   onHearts(n, max) {
     paintHearts(n, max);
   },
-  onCombo(label) {
-    showToast(label);
+  onCombo(n) {
+    paintCombo(n);
   },
   onToast(label) {
     showToast(label);
   },
-  onBigWin(level, score) {
-    $('#win-msg').textContent = `Completaste el nivel ${level}`;
-    $('#win-score').textContent = String(score);
-    show('screen-win');
-  },
   async onGameOver(score, meta) {
     show('screen-over');
-    $('#over-title').textContent = meta?.won ? '¡Pack completo!' : '¡Se acabó el azúcar!';
+    $('#over-title').textContent = '¡Fin de la carrera!';
     $('#final-score').textContent = String(score);
     const s = getState();
-    $('#over-best').textContent = `Nivel alcanzado: ${meta?.level || 1} · Tu récord: ${Math.max(
-      score,
-      s.bestScore || 0
-    )}`;
+    $('#over-best').textContent = `Distancia: ${meta?.distance || 0} m · Combo máx: ${
+      meta?.maxCombo || 0
+    } · Récord: ${Math.max(score, s.bestScore || 0)}`;
+    const shareCard = $('#share-score');
+    if (shareCard) shareCard.textContent = String(score);
     const msg = await submitScore(score);
     $('#score-msg').textContent = msg;
   },
@@ -69,20 +75,24 @@ function showToast(label) {
   }, 900);
 }
 
+const OVERLAYS = [
+  'screen-start',
+  'screen-how',
+  'screen-over',
+  'screen-board',
+  'screen-account',
+];
+
 function show(id) {
-  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account', 'screen-win'].forEach(
-    (s) => {
-      $(`#${s}`).classList.toggle('hidden', s !== id);
-    }
-  );
+  OVERLAYS.forEach((s) => {
+    $(`#${s}`)?.classList.toggle('hidden', s !== id);
+  });
 }
 
 function hideAllOverlays() {
-  ['screen-start', 'screen-how', 'screen-over', 'screen-board', 'screen-account', 'screen-win'].forEach(
-    (s) => {
-      $(`#${s}`).classList.add('hidden');
-    }
-  );
+  OVERLAYS.forEach((s) => {
+    $(`#${s}`)?.classList.add('hidden');
+  });
 }
 
 async function api(path, opts) {
@@ -141,7 +151,9 @@ async function loadBoard() {
     list.innerHTML = rows
       .map(
         (r, i) =>
-          `<li><span class="rank">${i + 1}</span><span class="nick">${escapeHtml(r.nickname)}</span><span class="pts">${r.score}</span></li>`
+          `<li><span class="rank">${i + 1}</span><span class="nick">${escapeHtml(
+            r.nickname
+          )}</span><span class="pts">${r.score}</span></li>`
       )
       .join('');
   } catch {
@@ -182,14 +194,14 @@ async function paintLandingBoard() {
 }
 
 function shareText(score, extra = '') {
-  return `🍬 Saqué ${score} puntos en Flechas de Azúcar (Cake Play) de Cake Studio Guatemala.${extra} ¿Me superas?\nhttps://juego.cakestudiogt.com`;
+  return `🧁 Saqué ${score} puntos en Pastel Run de Cake Studio Guatemala.${extra} ¿Me superas?\nhttps://juego.cakestudiogt.com`;
 }
 
 async function doShare(score, extra = '') {
   const text = shareText(score, extra);
   try {
     if (navigator.share) {
-      await navigator.share({ title: 'Flechas de Azúcar', text });
+      await navigator.share({ title: 'Pastel Run · Cake Studio', text });
       return;
     }
   } catch {
@@ -209,8 +221,8 @@ function startGame() {
   ensurePlayer(nick);
   hideAllOverlays();
   document.getElementById('app').classList.add('playing');
-  dropHint.classList.remove('hide');
-  setTimeout(() => dropHint.classList.add('hide'), 3500);
+  dropHint?.classList.remove('hide');
+  setTimeout(() => dropHint?.classList.add('hide'), 3200);
   game.start();
 }
 
@@ -234,14 +246,6 @@ $('#btn-board-close').addEventListener('click', () => {
   if (game.gameOver) show('screen-over');
   else if (!game.running) show('screen-start');
   else hideAllOverlays();
-});
-
-$('#btn-undo').addEventListener('click', () => {
-  if (!game.undo()) showToast('Nada que deshacer');
-});
-$('#btn-restart').addEventListener('click', () => {
-  game.restartLevel();
-  showToast('Nivel reiniciado');
 });
 
 $('#btn-mute').addEventListener('click', () => {
@@ -340,12 +344,6 @@ $('#btn-reclaim').addEventListener('click', async () => {
 
 $('#btn-share').addEventListener('click', () => {
   doShare($('#final-score').textContent);
-});
-$('#btn-win-share').addEventListener('click', () => {
-  doShare($('#win-score').textContent, ' ¡Gran racha!');
-});
-$('#btn-win-continue').addEventListener('click', () => {
-  hideAllOverlays();
 });
 
 paintLandingBoard();

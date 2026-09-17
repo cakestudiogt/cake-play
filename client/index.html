@@ -9,28 +9,36 @@
     <meta name="theme-color" content="#ea98af" />
     <meta
       name="description"
-      content="Flechas de Azúcar — puzzle de flechas de frosting. Cake Play · Cake Studio Guatemala."
+      content="Pastel Run — endless runner de Cake Studio Guatemala. Recoge Mini, Lonchera, Capa y Boda."
     />
-    <title>Flechas de Azúcar · Cake Play · Cake Studio</title>
+    <meta property="og:title" content="Pastel Run · Cake Studio Guatemala" />
+    <meta
+      property="og:description"
+      content="Corre por el pastel. Recoge productos Cake Studio y sube en el ranking eterno."
+    />
+    <title>Pastel Run · Cake Studio Guatemala</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%A7%3C/text%3E%3C/svg%3E"
-    />
+    <link rel="icon" type="image/png" href="/brand/logo-primary.png" />
   </head>
   <body>
     <div id="app">
       <header class="topbar">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">🍬</span>
+          <img
+            class="brand-logo"
+            src="/brand/logo-primary.png"
+            alt="Cake Studio"
+            width="56"
+            height="56"
+          />
           <div>
-            <h1>Cake Play</h1>
-            <p class="tagline">Flechas de Azúcar · Cake Studio GT</p>
+            <h1>Pastel Run</h1>
+            <p class="tagline">Cake Studio Guatemala</p>
           </div>
         </div>
         <div class="top-actions">
@@ -43,12 +51,12 @@
       <main class="stage-wrap">
         <div class="hud">
           <div class="hud-block">
-            <span class="hud-label">Nivel</span>
-            <span id="level" class="hud-value">1</span>
-          </div>
-          <div class="hud-block">
             <span class="hud-label">Puntos</span>
             <span id="score" class="hud-value">0</span>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">Distancia</span>
+            <span id="distance" class="hud-value">0 m</span>
           </div>
           <div class="hud-block">
             <span class="hud-label">Vidas</span>
@@ -56,87 +64,86 @@
           </div>
         </div>
 
+        <div id="combo-meter" class="combo-meter" aria-live="polite">
+          <span class="combo-label">Combo</span>
+          <div class="combo-bar"><div class="combo-fill"></div></div>
+        </div>
+
         <div id="game-shell" class="game-shell">
           <canvas id="game"></canvas>
           <div id="combo-toast" class="combo-toast" hidden></div>
-          <div id="drop-hint" class="drop-hint">Toca una flecha con camino libre</div>
-        </div>
-
-        <div class="toolbar">
-          <button type="button" id="btn-undo" class="tool-btn" title="Deshacer">↩ Deshacer</button>
-          <button type="button" id="btn-restart" class="tool-btn" title="Reiniciar nivel">↻ Nivel</button>
+          <div id="drop-hint" class="drop-hint hide">Desliza ← → · toca arriba para saltar</div>
         </div>
 
         <p class="tip">
-          Puntaje de <strong>partida</strong>: suma al completar niveles · camino bloqueado = −1 vida
+          Recoge <strong>Mini</strong>, <strong>Lonchera</strong>, <strong>Capa</strong> y <strong>Boda</strong> ·
+          evita bandejas y cajas
         </p>
         <div id="landing-board" class="landing-board" aria-live="polite"></div>
       </main>
 
-      <!-- Start overlay -->
+      <!-- Start -->
       <section id="screen-start" class="overlay">
         <div class="card hero-card">
-          <div class="hero-emoji">🍬↑↓←→✨</div>
-          <h2>Flechas de Azúcar</h2>
+          <img
+            class="hero-logo"
+            src="/brand/logo-primary.png"
+            alt="Cake Studio Guatemala"
+            width="120"
+            height="120"
+          />
+          <h2>Pastel Run</h2>
           <p class="lead">
-            El puzzle de flechas de frosting de <strong>Cake Studio</strong>. Despéjalas en el orden correcto y
-            sube en el ranking eterno.
+            El endless runner de <strong>Cake Studio</strong>. Corre por el pasillo de la pastelería,
+            recoge tus favoritos y evita el desastre dulce.
           </p>
           <label class="field">
             <span>Tu apodo</span>
             <input id="nick-input" maxlength="24" placeholder="Ej. SofiPastel" autocomplete="nickname" />
           </label>
-          <button type="button" id="btn-play" class="btn primary">Jugar</button>
+          <button type="button" id="btn-play" class="btn primary">Correr</button>
           <button type="button" id="btn-how" class="btn ghost">Cómo jugar</button>
-          <p class="fine">Un solo ranking mundial · para siempre</p>
+          <p class="fine">Ranking mundial eterno · un solo tablero</p>
         </div>
       </section>
 
-      <!-- How to play -->
+      <!-- How -->
       <section id="screen-how" class="overlay hidden">
         <div class="card">
           <h2>Cómo jugar</h2>
           <ul class="how-list bullets">
-            <li>Toca una flecha solo si su camino hasta el borde está libre (sin otras flechas).</li>
-            <li>Se desliza al <strong>portal de frosting</strong> y desaparece. ¡Limpia todo el tablero!</li>
-            <li><strong>El orden importa:</strong> unas flechas bloquean a otras — piensa la secuencia.</li>
-            <li><strong>Sin pistas después del tutorial:</strong> desde el nivel 4, tú encuentras qué flecha puede salir.</li>
+            <li><strong>Desliza</strong> izquierda/derecha (o flechas / A·D) para cambiar de carril.</li>
+            <li><strong>Desliza arriba</strong> o toca el centro / flecha ↑ / espacio para <strong>saltar</strong>.</li>
             <li>
-              Camino bloqueado = pierdes una vida. El puntaje de la partida sube al completar niveles
-              (nivel × 100 + bonus).
+              Recoge productos Cake Studio:
+              <em>Mini</em> (10), <em>Lonchera</em> (25), <em>Capa</em> (50), <em>Boda</em> (100).
             </li>
+            <li>Evita bandejas, rodillos, cajas de delivery y charcos de frosting. Algunas se saltan.</li>
+            <li>Combo por recolectas seguidas · 3 corazones · la velocidad sube despacio.</li>
           </ul>
           <button type="button" id="btn-how-close" class="btn primary">Entendido</button>
         </div>
       </section>
 
-      <!-- Level complete / big win toast handled via combo toast; game over below -->
+      <!-- Game over -->
       <section id="screen-over" class="overlay hidden">
-        <div class="card">
-          <h2 id="over-title">¡Se acabó el azúcar!</h2>
-          <p class="big-score"><span id="final-score">0</span> pts</p>
+        <div class="card over-card">
+          <div class="share-card" id="brag-card">
+            <img src="/brand/logo-on-navy.png" alt="Cake Studio" class="share-logo" width="88" height="88" />
+            <p class="share-game">Pastel Run</p>
+            <p class="big-score"><span id="final-score">0</span> pts</p>
+            <p class="share-score-label">Tu carrera</p>
+            <span id="share-score" class="sr-only">0</span>
+          </div>
+          <h2 id="over-title">¡Fin de la carrera!</h2>
           <p id="score-msg" class="score-msg"></p>
           <p id="over-best" class="over-meta"></p>
           <div class="btn-row">
             <button type="button" id="btn-share" class="btn accent">Compartir</button>
-            <button type="button" id="btn-again" class="btn primary">Jugar de nuevo</button>
+            <button type="button" id="btn-again" class="btn primary">Otra carrera</button>
           </div>
           <button type="button" id="btn-save-cta" class="btn ghost">Guardar con WhatsApp</button>
           <button type="button" id="btn-over-board" class="btn ghost">Ver ranking</button>
-        </div>
-      </section>
-
-      <!-- Big win share -->
-      <section id="screen-win" class="overlay hidden">
-        <div class="card hero-card">
-          <div class="hero-emoji">🎉🧁</div>
-          <h2>¡Gran racha!</h2>
-          <p class="lead" id="win-msg">Nivel 5 completado</p>
-          <p class="big-score"><span id="win-score">0</span> pts</p>
-          <div class="btn-row">
-            <button type="button" id="btn-win-share" class="btn accent">Compartir</button>
-            <button type="button" id="btn-win-continue" class="btn primary">Seguir</button>
-          </div>
         </div>
       </section>
 

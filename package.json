@@ -1,7 +1,7 @@
 {
   "name": "cake-play",
-  "version": "3.0.0",
-  "description": "Cake Play — Flechas de Azúcar (Arrows puzzle) for Cake Studio Guatemala",
+  "version": "4.0.0",
+  "description": "Pastel Run — endless runner for Cake Studio Guatemala",
   "private": true,
   "type": "module",
   "scripts": {
